@@ -31,31 +31,31 @@ ptwordpress -u htttps://www.example.com/
 
 ## Options
 ```
--u  --url         <url>           Connect to URL
--p  --proxy       <proxy>         Set Proxy
--T  --timeout                     Set Timeout
--c  --cookie      <cookie>        Set Cookie
--a  --user-agent  <a>             Set User-Agent
--H  --headers     <header:value>  Set Header(s)
--r  --redirects                   Follow redirects (default False)
--C  --cache                       Cache HTTP communication
--v  --version                     Show script version and exit
--h  --help                        Show this help message and exit
--j  --json                        Output in JSON format
-
+-u     --url         <url>           Connect to URL
+-wpsk  --wpscan-key  <api-key>       Set WPScan API key
+-p     --proxy       <proxy>         Set Proxy
+-T     --timeout                     Set Timeout
+-c     --cookie      <cookie>        Set Cookie
+-a     --user-agent  <a>             Set User-Agent
+-H     --headers     <header:value>  Set Header(s)
+-r     --redirects                   Follow redirects (default False)
+-C     --cache                       Cache HTTP communication
+-v     --version                     Show script version and exit
+-h     --help                        Show this help message and exit
+-j     --json                        Output in JSON format
 ```
 
 ## Dependencies
 ```
 ptlibs
-bs4
 defusedxml
+bs4
 lxml
 ```
 
 ## License
 
-Copyright (c) 2024 Penterep Security s.r.o.
+Copyright (c) 2025 Penterep Security s.r.o.
 
 ptwordpress is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
