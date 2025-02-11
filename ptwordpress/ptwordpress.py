@@ -26,7 +26,7 @@ import sys; sys.path.append(__file__.rsplit("/", 1)[0])
 import urllib
 import socket
 import json
-
+import http.client
 import requests
 
 from _version import __version__
@@ -72,12 +72,12 @@ class PtWordpress:
 
     def run(self, args) -> None:
         """Main method"""
-        self.base_response: object = self.load_url(url=self.BASE_URL, args=args, message="Connecting to URL") # example.com/
-        self.print_response_headers(response=self.base_response)
-        if self.base_response.is_redirect:
-            self.handle_redirect(self.base_response, args)
 
-        self.check_if_site_runs_wordpress(base_response=self.base_response, wp_json_response=None) # Base response check only
+        self.base_response: object = self._get_base_response(url=self.BASE_URL)
+        #self.find_backups()
+        #UserEnumeration(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed).run()
+
+        self.check_if_target_is_wordpress(base_response=self.base_response, wp_json_response=None)
 
         self.print_meta_tags(response=self.base_response)
         self.print_html_comments(response=self.base_response)
@@ -85,8 +85,8 @@ class PtWordpress:
 
         self.rest_response, self.rss_response, self.robots_txt_response = self.fetch_responses_in_parallel() # Parallel response retrieval
 
-        self.print_wordpress_version() # metatags, base response, rss response, .... # TODO: pass as argument.
-        self.print_supported_version() # From API
+        self.wp_version = self.get_wordpress_version() # metatags, base response, rss response, .... # TODO: pass as argument.
+        self.print_supported_versions(wp_version=self.wp_version) # From API
 
         self.print_robots_txt(robots_txt_response=self.robots_txt_response)
         self.process_sitemap(robots_txt_response=self.robots_txt_response)
@@ -106,7 +106,7 @@ class PtWordpress:
             self.parse_info_from_wp_json(wp_json=self.rest_response.json())
 
         SourceEnumeration(self.REST_URL, args, self.ptjsonlib).run()
-        UserEnumeration(self.REST_URL, args, self.ptjsonlib).enumerate_users()
+        UserEnumeration(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed).run()
 
         # TODO: Scan all routes, check for routes that are not auth protected (not 401)
         #APIRoutesWalker(self.args, self.ptjsonlib, self.rest_response).run()
@@ -143,9 +143,9 @@ class PtWordpress:
         #loader_thread.start()
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            future_rest = executor.submit(self._get_wp_json, url=self.REST_URL)  # example.com/wp-json/
-            future_rss = executor.submit(requests.get, self.BASE_URL + "/feed")  # example.com/feed
-            future_robots = executor.submit(requests.get, self.BASE_URL + "/robots.txt")  # example.com/robots.txt
+            future_rest = executor.submit(self._get_wp_json, url=self.REST_URL)           # example.com/wp-json/
+            future_rss = executor.submit(requests.get, self.BASE_URL + "/feed", proxies=self.args.proxy, verify=False)           # example.com/feed
+            future_robots = executor.submit(requests.get, self.BASE_URL + "/robots.txt", proxies=self.args.proxy, verify=False)  # example.com/robots.txt
 
             rest_response = fetch_response_with_error_handling(future_rest, self.REST_URL)
             rss_response = fetch_response_with_error_handling(future_rss, self.BASE_URL + "/feed")
@@ -156,7 +156,7 @@ class PtWordpress:
 
         return rest_response, rss_response, robots_txt_response
 
-    def print_supported_version(self):
+    def print_supported_versions(self, wp_version):
         """Print supported wordpress versions"""
         ptprint(f"Supported version:", "INFO", not self.args.json, colortext=True, newline_above=True)
         response: object = self.load_url("https://api.wordpress.org/core/version-check/1.7/")
@@ -222,15 +222,20 @@ class PtWordpress:
 
     def get_wp_version_from_rss_feed(self, response):
         """Retrieve wordpress version from generator tag if possible"""
-        root = ET.fromstring(response.text.strip())
+        try:
+            root = ET.fromstring(response.text.strip())
+        except:
+            ptprinthelper.ptprint(f"Error decoding XML feed", "ERROR", condition=not self.args.json, indent=4)
+            return
         generators: list = root.findall(".//generator")
         for generator in generators:
-            _wp_version = re.findall(r"wordpress.*?v=(.*)\b", generator.text, re.IGNORECASE)[0]
+            _wp_version = re.findall(r"wordpress.*?v=(.*)\b", generator.text, re.IGNORECASE)
+            _wp_version = _wp_version[0] if _wp_version else None
             if re.findall(r"wordpress.*?v=(.*)\b", generator.text, re.IGNORECASE):
                 ptprinthelper.ptprint(f"Wordpress {_wp_version} (RSS Feed: {response.url})", "TEXT", condition=not self.args.json, colortext=False, indent=4)
                 return _wp_version
 
-    def print_wordpress_version(self):
+    def get_wordpress_version(self):
         """Attempt to retrieve wordpress version."""
         ptprint(f"Wordpress version:", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
 
@@ -254,6 +259,7 @@ class PtWordpress:
             self.wp_version = result if result else self.wp_version
 
         # TODO: Pokud víš o dalších metodách, tak i ty….
+        return self.wp_version
 
     def print_robots_txt(self, robots_txt_response):
         if robots_txt_response is not None and robots_txt_response.status_code == 200:
@@ -265,15 +271,15 @@ class PtWordpress:
         """Sitemap tests"""
         ptprint(f"Sitemap:", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
         try:
-            sitemap_response = requests.get(self.BASE_URL + "/sitemap.xml", allow_redirects=False)
+            sitemap_response = requests.get(self.BASE_URL + "/sitemap.xml", allow_redirects=False, proxies=self.args.proxy, verify=False)
             if sitemap_response.status_code == 200:
                 ptprint(f"Sitemap exists: {sitemap_response.url}", "OK", condition=not self.args.json, indent=4)
             elif sitemap_response.is_redirect:
                 ptprint(f"[{sitemap_response.status_code}] {self.BASE_URL + "/sitemap.xml"} -> {sitemap_response.headers.get("location")}", "OK", condition=not self.args.json, indent=4)
             else:
-                ptprint(f"[{sitemap_response.status_code}] {sitemap_response.url}", "ERROR", condition=not self.args.json, indent=4)
+                ptprint(f"[{sitemap_response.status_code}] {sitemap_response.url}", "WARNING", condition=not self.args.json, indent=4)
         except requests.exceptions.RequestException:
-            ptprint(f"Error retrieving sitemap from {self.BASE_URL + '/sitemap.xml'}", "ERROR", condition=not self.args.json, indent=4)
+            ptprint(f"Error retrieving sitemap from {self.BASE_URL + '/sitemap.xml'}", "WARNING", condition=not self.args.json, indent=4)
 
         if robots_txt_response.status_code == 200:
             _sitemap_url: list = re.findall(r"Sitemap:(.*)\b", self.robots_txt_response.text, re.IGNORECASE)
@@ -292,7 +298,7 @@ class PtWordpress:
             """Funkce pro ověření jednoho URL"""
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=print_text and not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
             try:
-                response = requests.get(url, timeout=5)
+                response = requests.get(url, timeout=5, proxies=self.args.proxy, verify=False)
                 if response.status_code == 200 and "index of /" in response.text.lower():
                     vuln_urls.put(url)  # ✅ Thread-safe zápis
                     ptprinthelper.ptprint(f"{url}", "VULN", condition=print_text and not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
@@ -398,19 +404,27 @@ class PtWordpress:
         for path in  ["/wp-admin/", "/admin", "/wp-login.php"]:
             full_url = self.BASE_URL + path
             try:
-                response = requests.get(full_url, allow_redirects=False)
-                result.append([f"[{response.status_code}]", f"{full_url}", response.headers.get("location", "")])
+                response = requests.get(full_url, allow_redirects=False, proxies=self.args.proxy, verify=False)
+                # {http.client.responses.get(response.status_code, 'Unknown status code')}
+                result.append([f"{response.status_code}" , f"{full_url}", response.headers.get("location", "")])
             except requests.exceptions.RequestException:
                 result.append([f"[error]", f"{full_url}"])
 
+        is_found = False # True if status code 200 anywhere
         # Print results
         max_url_length = max(len(url_from) for _, url_from, _ in result)
         for code, url_from, url_to in result:
-            ptprint(f"{code:<6} {url_from:<{max_url_length}} {'-> ' + url_to if url_to else ''}", "TEXT", condition=not self.args.json, indent=4)
+            ptprint(f"[{code}] {url_from:<{max_url_length}} {'-> ' + url_to if url_to else ''}", "TEXT", condition=not self.args.json, indent=4)
+            if str(code).startswith("2"):
+                is_found = True
+
+        ptprint("Admin page found" if is_found else "Admin page not found", "VULN" if is_found else "OK", condition=not self.args.json, indent=4)
+
+
 
     def _is_head_method_allowed(self, url) -> bool:
         try:
-            response = requests.head(url)
+            response = requests.head(url, proxies=self.args.proxy, verify=False)
             return True if response.status_code == 200 else False
         except:
             return False
@@ -430,10 +444,10 @@ class PtWordpress:
                 try:
                     response = requests.request(method="HEAD" if self.head_method_allowed else "GET", url=full_url, verify=False, proxies=self.args.proxy, allow_redirects=False)
                     if response.status_code == 200:
-                        ptprinthelper.ptprint(response.url, "TEXT", not self.args.json, flush=True, colortext=True, indent=4, clear_to_eol=True)
+                        ptprinthelper.ptprint(response.url, "VULN", not self.args.json, flush=True, indent=4, clear_to_eol=True)
                         vuln_urls.put(response.url) # Thread safe
                     if response.status_code == 429:
-                        ptprinthelper.ptprint("Too many requests error.", "WARNING", not self.args.json, flush=True, colortext=True, indent=4, clear_to_eol=True)
+                        ptprinthelper.ptprint("Too many requests error.", "WARNING", not self.args.json, flush=True, indent=4, clear_to_eol=True)
                 except Exception as e:
                     pass
 
@@ -447,8 +461,8 @@ class PtWordpress:
     def find_backups(self):
         ptprinthelper.ptprint(f"Backups discovery", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
 
-        domain = self.BASE_URL.split("://")[-1]
-        BackupsFinder(args=self.args, ptjsonlib=self.ptjsonlib, head_method_allowed=self._is_head_method_allowed).run(domain=domain)
+        #domain = self.BASE_URL.split("://")[-1]
+        BackupsFinder(args=self.args, ptjsonlib=self.ptjsonlib, head_method_allowed=self._is_head_method_allowed).run(base_url=self.BASE_URL)
 
     def _process_meta_tags(self):
         ptprinthelper.ptprint(f"Meta tags:", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
@@ -529,11 +543,13 @@ class PtWordpress:
                 ptprinthelper.ptprint(f"{namespace} {namespace_description}", "TEXT", condition=not self.args.json, indent=4)
         return
 
-    def check_if_site_runs_wordpress(self, base_response: object, wp_json_response: object) -> bool:
+    def check_if_target_is_wordpress(self, base_response: object, wp_json_response: object) -> bool:
+        """Checks if target runs wordpress, if not script will be terminated."""
         if not any(substring in self.base_response.text.lower() for substring in ["wp-content/", "wp-includes/", "wp-json/"]):
             ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, indent=0)
             self.ptjsonlib.end_error(f"Target doesn't seem to be running wordpress.", self.args.json)
 
+        # FIXME: Base response check only
 
     def construct_wp_api_url(self, url: str) -> None:
         """
@@ -571,6 +587,14 @@ class PtWordpress:
         except:
             return None
             #self.ptjsonlib.end_error(f"Not a wordpress site or wp-json disabled.", self.args.json)
+
+    def _get_base_response(self, url):
+        """Retrieve base response and handle initial redirects"""
+        base_response = self.load_url(url=self.BASE_URL, args=self.args, message="Connecting to URL") # example.com/
+        self.print_response_headers(response=base_response)
+        if base_response.is_redirect:
+            self.handle_redirect(base_response, self.args)
+        return base_response
 
     def _get_rss_feed(self, url):
         """Retrieve RSS Feed"""
@@ -619,32 +643,65 @@ def get_help():
         {"usage_example": [
             "ptwordpress -u https://www.example.com",
         ]},
+        {"Info": [
+            "If no wordlist option set, default will be used",
+        ]},
         {"options": [
-            ["-u",  "--url",                    "<url>",            "Connect to URL"],
-            ["-wpsk", "--wpscan-key",           "<api-key>",        "Set WPScan API key"],
-            ["-p",  "--proxy",                  "<proxy>",          "Set Proxy"],
-            ["-T",  "--timeout",                "",                 "Set Timeout"],
-            ["-c",  "--cookie",                 "<cookie>",         "Set Cookie"],
-            ["-a", "--user-agent",              "<a>",              "Set User-Agent"],
-            ["-H",  "--headers",                "<header:value>",   "Set Header(s)"],
-            ["-r",  "--redirects",              "",                 "Follow redirects (default False)"],
-            ["-C",  "--cache",                  "",                 "Cache HTTP communication"],
-            ["-v",  "--version",                "",                 "Show script version and exit"],
-            ["-h",  "--help",                   "",                 "Show this help message and exit"],
-            ["-j",  "--json",                   "",                 "Output in JSON format"],
+            ["-u",  "--url",                    "<url>",                "Connect to URL"],
+            ["-wpsk", "--wpscan-key",           "<api-key>",            "Set WPScan API key (https://wpscan.com)"],
+            ["-p",  "--proxy",                  "<proxy>",              "Set Proxy"],
+            ["-T",  "--timeout",                "",                     "Set Timeout"],
+            ["-c",  "--cookie",                 "<cookie>",             "Set Cookie"],
+            ["-a", "--user-agent",              "<agent>",              "Set User-Agent"],
+            ["-ar", "--author-range",           "<author-range>",       "Set custom range for author enumeration (e.g. 1000-1300)"],
+            ["-wu", "--wordlist-users",         "<user_wordlist>",      "Set Custom wordlist for user enumeration"],
+            #["-wu", "--wordlist-users",         "<plugin_wordlist>",    "Set Custom wordlist for plugin enumeration"],
+            #["-wu", "--wordlist-sources",       "<source_wordlist>",    "Set Custom wordlist for source enumeration"],
+            ["-H",  "--headers",                "<header:value>",       "Set Header(s)"],
+            ["-r",  "--redirects",              "",                     "Follow redirects (default False)"],
+            ["-C",  "--cache",                  "",                     "Cache HTTP communication"],
+            ["-v",  "--version",                "",                     "Show script version and exit"],
+            ["-h",  "--help",                   "",                     "Show this help message and exit"],
+            ["-j",  "--json",                   "",                     "Output in JSON format"],
         ]
         }]
+
+def parse_range(string: str):
+    """Parses range, expected formats are 1-999999, 1 9999"""
+    match = re.match(r'(\d+)[- ](\d+)$', string)
+    try:
+        if not match:
+            #raise argparse.ArgumentTypeError(f"Error: {string} is not in valid format. Expected range in format 1-99999 or 1 99999.")
+            return (1, 10)
+
+        if int(match.group(1)) > int(match.group(2)):
+            #raise argparse.ArgumentTypeError(f"Error: Provided range is not valid")
+            return (1, 10)
+        if (int(match.group(1)) > 99999) or (int(match.group(2)) > 99999):
+            #raise argparse.ArgumentTypeError(f"Error: Provided range is too high")
+            return (1, 10)
+
+        if int(match.group(1)) < 1:
+            return ( 1, int(match.group(2)) )
+
+        return ( int(match.group(1)), int(match.group(2)) )
+
+    except argparse.ArgumentTypeError as e:
+        print(e)
+        sys.exit(1)
 
 
 def parse_args():
     parser = argparse.ArgumentParser(add_help="False", description=f"{SCRIPTNAME} <options>")
     parser.add_argument("-u",  "--url",              type=str, required=True)
     parser.add_argument("-p",  "--proxy",            type=str)
+    parser.add_argument("-wu", "--wordlist-users",   type=str)
     parser.add_argument("-wpsk", "--wpscan-key",     type=str)
     parser.add_argument("-T",  "--timeout",          type=int, default=10)
     parser.add_argument("-t",  "--threads",          type=int, default=100)
     parser.add_argument("-a",  "--user-agent",       type=str, default="Penterep Tools")
     parser.add_argument("-c",  "--cookie",           type=str)
+    parser.add_argument("-ar", "--author-range",     type=parse_range, default=(1, 10))
     parser.add_argument("-H",  "--headers",          type=ptmisclib.pairs, nargs="+")
     parser.add_argument("-r",  "--redirects",        action="store_true")
     parser.add_argument("-C",  "--cache",            action="store_true")

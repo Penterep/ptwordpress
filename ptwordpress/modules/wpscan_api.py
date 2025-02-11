@@ -13,10 +13,14 @@ class WPScanAPI:
 
     def run(self, wp_version: str, plugins: list, themes: list):
         ptprint(f"WPScan:", "INFO", not self.args.json, colortext=True, newline_above=True)
+        if not self.API_KEY:
+            ptprint(f"API key is required for WPScan information (--wpscan-key)", "WARNING", condition=not self.args.json, indent=4)
+            return
         json_data = self.get_user_status_plan()
         if json_data.get('requests_remaining') == -1:
             ptprint(f"No requests remaining", "TEXT", condition=not self.args.json, indent=4)
             return
+
         else:
             self.get_vulnerabilities_by_wp_version(version=wp_version)
 
@@ -31,10 +35,10 @@ class WPScanAPI:
                 self.get_theme_vulnerabilities(theme)
                 if theme != themes[-1]:
                     ptprint(" ", "TEXT", condition=not self.args.json)
-        input(".")
 
     def get_vulnerabilities_by_wp_version(self, version: str):
         """Retrieve and print vulnerabilities from API"""
+        if not version: return
         response_data = self.send_request(url=self.API_URL + f"/wordpresses/{''.join(version.split('.'))}").json()
         if "is_error" in response_data.keys() or any(error_message in response_data.get("status", "") for error_message in ["error", "rate limit hit", "forbidden"]):
             ptprint(response_data, "TEXT", not self.args.json)
@@ -69,7 +73,7 @@ class WPScanAPI:
             ptprint(response_data, "TEXT", not self.args.json)
             return
         if response_data.get(plugin):
-            response_data = response[plugin]
+            response_data = response_data[plugin]
 
             ptprint(f"{plugin}", "TEXT", not self.args.json, indent=4)
             ptprint(f"Name: {response_data.get('friendly_name', 'UNKNOWN')}", "TEXT", not self.args.json, indent=4)

@@ -1,5 +1,6 @@
 import requests
 from ptlibs import ptprinthelper
+import http.client
 
 class SourceEnumeration:
     def __init__(self, rest_url, args, ptjsonlib):
@@ -12,10 +13,6 @@ class SourceEnumeration:
         self.find_xmlrpc()
 
     def find_xmlrpc(self):
-        response = requests.get(f"{self.BASE_URL}/xmlrpc.php")
-        ptprinthelper.ptprint(f"XMPLRPC ({self.BASE_URL}/xmlrpc.php):", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-
-        if response.status_code == 200:
-            ptprinthelper.ptprint(f"[{response.status_code}] {self.BASE_URL}/xmlrpc.php", "TEXT", condition=not self.args.json, colortext=True, indent=4)
-        else:
-            ptprinthelper.ptprint(f"[{response.status_code}] Not found", "TEXT", condition=not self.args.json, colortext=False, indent=4)
+        response = requests.get(f"{self.BASE_URL}/xmlrpc.php", proxies=self.args.proxy, verify=False)
+        ptprinthelper.ptprint(f"{self.BASE_URL}/xmlrpc.php:", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        ptprinthelper.ptprint(f"[{response.status_code}] {http.client.responses.get(response.status_code, 'Unknown status code')}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
