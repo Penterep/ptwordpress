@@ -1,11 +1,17 @@
+import hashlib
 import re
 import os
+import http.client
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
+from queue import Queue
 import requests
-import defusedxml.ElementTree as ET
 import ptlibs.tldparser as tldparser
+import defusedxml.ElementTree as ET
 from ptlibs import ptprinthelper
+from threading import Lock
+
+from modules.write_to_file import write_to_file
+#from modules.rss_feed_enumerator import RssFeedEnumerator
 
 class UserEnumeration:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed):
@@ -19,23 +25,86 @@ class UserEnumeration:
         self.vulnerable_endpoints: set = set() # List of URL spots allowing user enumeration
         self.path_to_user_wordlist = self.get_path_to_wordlist()
 
+        self.RESULT_QUERY = Queue() # bude obsahovat slovnik? {"id": 1, "username": "user", "full_name": "fullname"}
+
+        #self.rss_feed_enumerator = RssFeedEnumerator(base_url=self.BASE_URL, args=self.args)
+        #self.rss_feed_enumerator.run()
+        #input(".")
+
     def run(self):
-        self._enumerate_users_by_author_id()     # example.com/?author=<author_id>
-        self._enumerate_users_by_author_name()   # example.com/author/<author_name> (dictionary attack)
-        #self.print_vulnerable_endpoints()
-        #return
-        self._enumerate_users_by_users()
-        self._enumerate_users_by_users_paginator()
-        self._enumerate_users_by_posts()
-        self.map_user_id_to_slug()
+        #self._enumerate_users_by_rss_feed()
         self._enumerate_users_by_rss_feed()
+        self._enumerate_users_by_author_name()       # example.com/author/<author> (dictionary attack)
+        self._enumerate_users_by_author_id()         # example.com/?author=<id>
+        self._enumerate_users_by_users()             # example.com/wp-json/wp/v2/users
+        self._enumerate_users_by_users_paginator()   # example.com/wp-json/wp/v2/users?page=<id>&per_page=100
+        self._enumerate_users_by_posts()
+        #self.map_user_id_to_slug()
+        self.print_enumerated_users_table()          #
+        self.print_unique_slugs()
         self.print_vulnerable_endpoints()
+
+    def print_unique_slugs(self):
+        users = list(self.RESULT_QUERY.queue)
+
+        # Získání unikátních slugs (použijeme set pro odstranění duplicit)
+        unique_slugs = set(user["slug"] for user in users if user["slug"])
+
+        # Seřaď unikátní slugs
+        unique_slugs = sorted(unique_slugs)
+
+        # Pokud chceme vypsat titulek pro tabulku slugs:
+        ptprinthelper.ptprint("Discovered logins:", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
+        # Výpis unikátních slugs
+        for slug in unique_slugs:
+            ptprinthelper.ptprint(slug, "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True)
+
+        if self.args.output:
+            filename = self.args.output + "-usernames"
+            if "." in self.args.output:
+                splitted = self.args.output.split(".")
+                filename = f"{splitted[0]}-usernames.{splitted[-1]}"
+            write_to_file(filename, '\n'.join(unique_slugs))
+
+    def print_enumerated_users_table(self):
+        ptprinthelper.ptprint(f"Enumerated users:", "TITLE", condition=not self.args.json, colortext=True, newline_above=False)
+        users = list(self.RESULT_QUERY.queue)
+
+        # Seřaď podle ID (s ošetřením prázdných hodnot a správnou kontrolou typu)
+        users.sort(key=lambda x: int(x["id"]) if isinstance(x["id"], str) and x["id"].isdigit() else float('inf'))
+
+        # Krok 1: Najít maximální délku pro každý sloupec
+        max_id_len = max(len(str(user["id"])) for user in users)
+        max_name_len = max(len(user["name"]) for user in users)
+        max_slug_len = max(len(user["slug"]) for user in users)
+
+        ptprinthelper.ptprint(f"{'ID':<{max_id_len}}    {'NAME':<{max_name_len}}    {'SLUG':<{max_slug_len}}", "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE")
+        ptprinthelper.ptprint("-" * (max_id_len + max_name_len + max_slug_len + 6), "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True)
+        user_lines = list()
+        for user in users:
+            ptprinthelper.ptprint(f"{user['id']:<{max_id_len}}    {user['name']:<{max_name_len}}    {user['slug']:<{max_slug_len}}", "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True)
+            user_lines.append(f"{user['id']}:{user.get('slug')}:{user['name']}")
+
+        if self.args.output:
+            filename = self.args.output + "-users"
+            if "." in self.args.output:
+                splitted = self.args.output.split(".")
+                filename = f"{splitted[0]}-users.{splitted[-1]}"
+            write_to_file(filename, '\n'.join(user_lines))
 
     def _enumerate_users_by_users(self) -> list:
         """Enumerate users via /wp-json/wp/v2/users endpoint"""
         response = requests.get(f"{self.REST_URL}/wp/v2/users", proxies=self.args.proxy, verify=False, allow_redirects=False)
         if response.status_code == 200:
             for user_object in response.json():
+
+                result = {
+                    "id": str(user_object.get("id", "")),
+                    "slug": user_object.get("slug", ""),
+                    "name": user_object.get("name")
+                }
+
+                self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, result)
                 self.FOUND_AUTHOR_IDS.add(user_object.get("id"))
                 self.vulnerable_endpoints.add(response.url)
 
@@ -46,8 +115,16 @@ class UserEnumeration:
             if response.status_code == 200:
                 if not response.json():
                     break
-                for post in response.json():
-                    author_id, author_name, author_slug = post.get("id"), post.get("name"), post.get("slug")
+
+                for user_object in response.json():
+                    result = {
+                        "id": str(user_object.get("id", "")),
+                        "slug": user_object.get("slug", ""),
+                        "name": user_object.get("name", "")
+                    }
+                    self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, result)
+
+                    author_id = user_object.get("id")
                     if author_id:
                         self.FOUND_AUTHOR_IDS.add(author_id)
                         self.vulnerable_endpoints.add(f"{self.REST_URL}/wp/v2/users/")
@@ -56,19 +133,49 @@ class UserEnumeration:
 
     def _enumerate_users_by_posts(self):
         """Enumerate users via https://example.com/wp-json/wp/v2/posts/?per_page=100&page=<number> endpoint"""
-        for i in range(1, 100):
-            response = requests.get(f"{self.REST_URL}/wp/v2/posts/?per_page=100&page={i}", allow_redirects=True, proxies=self.args.proxy, verify=False)
-            if response.status_code == 200:
-                if not response.json():
-                    break
-                for post in response.json():
-                    author_id = post.get("author")
-                    if author_id:
-                        self.FOUND_AUTHOR_IDS.add(author_id)
-                        self.vulnerable_endpoints.add(f"{self.REST_URL}/wp/v2/posts/")
-            if response.status_code != 200:
-                break
 
+        def fetch_page(page):
+            """Thread function to fetch a single page of posts"""
+            try:
+                url = f"{self.REST_URL}/wp/v2/posts/?per_page=100&page={page}"
+                #ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
+                response = requests.get(url, proxies=self.args.proxy, verify=False)
+
+                if response.status_code != 200:
+                    # Pokud status není 200, přerušit
+                    return None
+
+                posts = response.json()
+                if not posts:
+                    # Pokud jsou odpovědi prázdné, přerušit
+                    return None
+
+                result = []
+                for post in posts:
+                    result.append({
+                        "id": str(post.get("author", "")),
+                        "slug": "",
+                        "name": ""
+                    })
+                return result
+
+            except Exception:
+                return None
+
+        results = []
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            page_range = range(1, 100)  # Počínaje stránkou 1 až do 99
+            for i in range(0, len(page_range), 10):  # Posíláme po 10 stránkách najednou
+                futures = {executor.submit(fetch_page, page_range[j]): page_range[j] for j in range(i, min(i + 10, len(page_range)))}
+                # Zpracování výsledků
+                for future in as_completed(futures):
+                    result = future.result()  # Opraveno na `result` místo `results`
+                    if result:
+                        for r in result:
+                            self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, r)
+                    else:
+                        # Když dostaneme None, znamená to problém s odpovědí, přerušujeme.
+                        return
 
     def _enumerate_users_by_author_id(self) -> list:
         """Enumerate users via /?author=<id> query."""
@@ -77,13 +184,13 @@ class UserEnumeration:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
             response = requests.get(url, allow_redirects=False, proxies=self.args.proxy, verify=False)
             max_length = len(str(self.args.author_range[-1])) - len(str(author_id))
+            user_id = response.url.split("=")[-1]
             if response.status_code == 200:
                 # Extracts name from title
                 #title = (re.search(r"<title>(.*?)</title>", response.text, re.IGNORECASE | re.DOTALL))
                 name_from_title = self._extract_name_from_title(response)
                 ptprinthelper.ptprint(f"[{response.status_code}] {url}{' '*max_length} →   {name_from_title}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
-                id_ = response.url.split("=")[-1]
-                return int(id_) if id_.isdigit() else None
+                return {"id": str(user_id) if user_id.isdigit() else "", "name": name_from_title, "slug": ""}
 
             elif response.is_redirect:
                 location = response.headers.get("Location")
@@ -96,13 +203,14 @@ class UserEnumeration:
                 re_pattern = r"/author/(.*)/$" # Check if author in redirect
                 match = re.search(re_pattern, response.headers.get("location", ""))
                 if match:
-                    author_login = match.group(1)
+                    slug = match.group(1)
                     nickname_max_length =  (20 - len(str(name_from_title)))
-                    ptprinthelper.ptprint(f"[{response.status_code}] {response.url}{' '*max_length} →   {name_from_title} {' '*nickname_max_length}{author_login}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
+                    ptprinthelper.ptprint(f"[{response.status_code}] {response.url}{' '*max_length} →   {name_from_title} {' '*nickname_max_length}{slug}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
+                    return {"id": str(user_id) if user_id.isdigit() else "", "name": name_from_title, "slug": slug}
 
-        ptprinthelper.ptprint(f"User enumeration: {self.BASE_URL}/?author=<{self.args.author_range[0]}-{self.args.author_range[1]}>", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         futures: list = []
         results: list = []
+        ptprinthelper.ptprint(f"User enumeration: {self.BASE_URL}/?author=<{self.args.author_range[0]}-{self.args.author_range[1]}>", "TITLE", condition=not self.args.json, colortext=True, newline_above=False)
         with ThreadPoolExecutor(max_workers=10) as executor:
             futures = [executor.submit(check_author_id, i) for i in range(self.args.author_range[0], self.args.author_range[1])]
             for future in as_completed(futures):
@@ -112,8 +220,11 @@ class UserEnumeration:
 
             if results:
                 self.vulnerable_endpoints.add(f"{self.BASE_URL}/?author=<id>")
-                for author_id in results:
-                    self.FOUND_AUTHOR_IDS.add(author_id)
+                for result in results:
+                    self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, result)
+
+                    unique_id = result.get("id")
+                    self.FOUND_AUTHOR_IDS.add(result.get("id"))
             else:
                 ptprinthelper.ptprint(f"No names enumerated in {self.args.author_range[0]}-{self.args.author_range[1]} id range", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
             ptprinthelper.ptprint(" ", "TEXT", condition=not self.args.json, clear_to_eol=True)
@@ -132,22 +243,22 @@ class UserEnumeration:
                 title = self._extract_name_from_title(response)
                 #print("TITLE:", title)
                 ptprinthelper.ptprint(f"[{response.status_code}] {url}    {title}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
-                return response.url
-
+                return {"id": "", "name": title, "slug": author_name}
 
         results = []
-        ptprinthelper.ptprint(f"User enumeration: {self.BASE_URL}/author/<name>/", "TITLE", condition=not self.args.json, colortext=True, newline_above=False)
+        ptprinthelper.ptprint(f"User enumeration: {self.BASE_URL}/author/<name>/", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         with ThreadPoolExecutor(max_workers=10) as executor:
             futures = [executor.submit(check_author_name, author_name) for author_name in self.wordlist_generator(wordlist_path=self.path_to_user_wordlist)]
             for future in as_completed(futures):
                 result = future.result()
                 if result is not None:
+                    self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, result)
                     results.append(result)
             if results:
                 self.vulnerable_endpoints.add(f"{self.BASE_URL}/author/<author>/")
             else:
                 ptprinthelper.ptprint(f"No names enumerated via dictionary attack", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
-            ptprinthelper.ptprint(" ", "TEXT", condition=not self.args.json)
+            ptprinthelper.ptprint(" ", "TEXT", condition=not self.args.json, clear_to_eol=True)
 
     def _enumerate_users_via_comments(self):
         for i in range(1, 100):
@@ -194,6 +305,7 @@ class UserEnumeration:
 
     def _enumerate_users_by_rss_feed(self):
         """User enumeration via RSS feed"""
+
         ptprinthelper.ptprint(f"User enumeration: {self.BASE_URL}/feed", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         rss_authors = set()
         response = requests.get(f"{self.BASE_URL}/feed", proxies=self.args.proxy, verify=False)
@@ -215,6 +327,29 @@ class UserEnumeration:
         else:
             ptprinthelper.ptprint(f"RSS feed not available", "TEXT", condition=not self.args.json, indent=4)
 
+    def parse_feed(self, response):
+        """TODO:"""
+        #ptprinthelper.ptprint(f"{url}:", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        rss_authors = set()
+        try:
+            root = ET.fromstring(response.text.strip())
+            #input(response.text.strip())
+            # Define the namespace dictionary
+            namespaces = {'dc': 'http://purl.org/dc/elements/1.1/'}
+            # Find all dc:creator elements and print their text
+            creators = root.findall('.//dc:creator', namespaces)
+            for creator in creators:
+                creator = creator.text.strip()
+                if creator not in rss_authors:
+                    rss_authors.add(creator)
+                    ptprinthelper.ptprint(f"{creator}", "TEXT", condition=not self.args.json, colortext=False, indent=4+4+4)
+        except Exception as e:
+            print(e)
+            ptprinthelper.ptprint(f"Error decoding XML feed, Check content of URL manually.", "ERROR", condition=not self.args.json, indent=4+4+4)
+        return rss_authors
+        #else:
+        #    ptprinthelper.ptprint(f"RSS feed not available", "TEXT", condition=not self.args.json, indent=4)
+
     def print_vulnerable_endpoints(self):
         ptprinthelper.ptprint(f"Vulnerable endpoints (allowing user enumeration):", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         self.vulnerable_endpoints =  {u[:-1] if u.endswith("/") else u for u in self.vulnerable_endpoints}
@@ -226,7 +361,7 @@ class UserEnumeration:
         def load_dynamic_words():
             """Extend default wordlist with dynamic words based on target domain"""
             parsed_url = tldparser.extract(self.BASE_URL)
-            return [
+            dynamic_words =  [
                 parsed_url.domain,                                                      # example
                 parsed_url.domain + parsed_url.suffix,                                  # examplecom
                 parsed_url.domain + "." + parsed_url.suffix,                            # example.com
@@ -237,9 +372,9 @@ class UserEnumeration:
                 "webmaster@"      +  parsed_url.domain + "." + parsed_url.suffix,       # webmaster@example.com
                 "web@"            +  parsed_url.domain + "." + parsed_url.suffix,       # web@example.com,
                 "www@"            +  parsed_url.domain + "." + parsed_url.suffix,       # www@example.com,
-            ] + [(parsed_url.subdomain + "." + parsed_url.domain + "." + parsed_url.suffix) if parsed_url.subdomain else [], # www.example.com, www.mail.example.com
-
-                ]
+            ]
+            if parsed_url.subdomain: dynamic_words.append((parsed_url.subdomain + "." + parsed_url.domain + "." + parsed_url.suffix))
+            return dynamic_words
 
         # This happens just once
         dynamic_words = load_dynamic_words()
@@ -285,12 +420,44 @@ class UserEnumeration:
         try:
             title = re.search(r"<title>(.*?)</title>", response.text, re.IGNORECASE | re.DOTALL).groups()[0]#[1].strip().split(" ", 2)
             email_from_title = re.match(r"([\w\.-]+@[\w\.-]+\.?\w+)", title)
-            email_from_title = email_from_title.group(1) if email_from_title else None
+            if email_from_title:
+                email_from_title = email_from_title.group(1)
+            
             if not email_from_title:
-                name_from_title = re.match(r"^([A-Za-zá-žÁ-Ž0-9._-]+(?:\s[A-Za-zá-žÁ-Ž0-9._-]+)*)\s*[\|\-–—‒―‽·•#@*&]+", title)
-                name_from_title = re.match(r"^([A-Za-zá-žÁ-Ž0-9._-]+(?:\s[A-Za-zá-žÁ-Ž0-9._-]+)*)\s*[\|\-–—‒―‽·•#@*&]+", title).group(1)
+                name_from_title = re.match(r"^([A-Za-zá-žÁ-Ž0-9._-]+(?:\s[A-Za-zá-žÁ-Ž0-9._-]+)*)\s*[\|\-–—‒―‽·•#@*&,]+", title)
+                if name_from_title:
+                    name_from_title = name_from_title.group(1)
 
-            return email_from_title or name_from_title
+            if all([email_from_title, name_from_title]) is None:
+                return title
+            else:
+                return email_from_title or name_from_title
         except Exception as e:
             print(e)
             #return ""
+
+    def update_queue(self, queue, user_data):
+        # Dočasně vyprázdni frontu
+        temp_queue = Queue()
+
+        # Projdi původní frontu a zkopíruj položky do dočasné fronty
+        found = False  # Flag, který nám pomůže zjistit, zda jsme našli záznam s tímto ID
+        while not queue.empty():
+            item = queue.get()
+            if item.get("id") == user_data.get("id"):
+                # Pokud položka s tímto ID existuje, slouč ji
+                found = True
+                # Aktualizuj pouze ty hodnoty, které jsou prázdné
+                if not item.get("slug") and user_data.get("slug"):
+                    item["slug"] = user_data["slug"]
+                if not item.get("name") and user_data.get("name"):
+                    item["name"] = user_data["name"]
+            # Přidej upravený (nebo nezměněný) záznam do dočasné fronty
+            temp_queue.put(item)
+
+        # Pokud jsme nenašli záznam, přidej nový
+        if not found:
+            temp_queue.put(user_data)
+
+        # Nahradíme původní frontu
+        return temp_queue
