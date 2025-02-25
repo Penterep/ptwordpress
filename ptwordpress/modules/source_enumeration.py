@@ -18,7 +18,6 @@ class SourceEnumeration:
 
     def print_media(self):
         """Print all media discovered via API"""
-
         def fetch_page(page):
             """Stáhne jednu stránku z API"""
             try:
@@ -38,8 +37,10 @@ class SourceEnumeration:
         try:
             response = requests.get(f"{self.BASE_URL}/wp-json/wp/v2/media?page=1&per_page=100", proxies=self.args.proxy, verify=False)
             data = response.json()
+            if response.status_code != 200:
+                raise ValueError
         except Exception as e:
-            ptprinthelper.ptprint("API Blocked", "WARNING", condition=not self.args.json, indent=4)
+            ptprinthelper.ptprint("API Blocked", "OK", condition=not self.args.json, indent=4)
             return
 
         source_urls = set()
@@ -67,10 +68,10 @@ class SourceEnumeration:
             ptprinthelper.ptprint(source, "ADDITIONS", colortext=True, condition=not self.args.json, indent=4)
 
         if self.args.output:
-            filename = self.args.output + "-media"
-            if "." in self.args.output:
-                splitted = self.args.output.split(".")
-                filename = f"{splitted[0]}-media.{splitted[-1]}"
+            filename = self.args.output + "-media.txt"
+            #if "." in self.args.output:
+            #    splitted = self.args.output.split(".")
+            #    filename = f"{splitted[0]}-media.{splitted[-1]}"
             write_to_file(filename, '\n'.join(source_urls))
 
     def discover_xml_rpc(self):
@@ -81,8 +82,11 @@ class SourceEnumeration:
           <params></params>
         </methodCall>'''
         ptprinthelper.ptprint(f"{self.BASE_URL}/xmlrpc.php", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-        response = requests.post(f"{self.BASE_URL}/xmlrpc.php", proxies=self.args.proxy, verify=False, data=xml_data)
-        ptprinthelper.ptprint(f"[{response.status_code}] {http.client.responses.get(response.status_code, 'Unknown status code')} {'Available' if response.status_code == 200 else ''}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4) 
+        response = requests.post(f"{self.BASE_URL}/xmlrpc.php", proxies=self.args.proxy, verify=False, data=xml_data, allow_redirects=False)
+        ptprinthelper.ptprint(f"Script xmlrpc.php is {'available' if response.status_code == 200 else 'not available'}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
+        ptprinthelper.ptprint(f"[{response.status_code}] {response.url}", "TEXT", condition=not self.args.json, indent=8)
+
+        #ptprinthelper.ptprint(f"[{response.status_code}] {http.client.responses.get(response.status_code, 'Unknown status code')} {'Available' if response.status_code == 200 else ''}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4) 
 
     def discover_repositories(self):
         """Discover repositories by accessing ./git/HEAD, /.svn/entries files."""
@@ -91,7 +95,7 @@ class SourceEnumeration:
         for path in ["/.git/HEAD", "/wp-content/.git/HEAD", "/wp-content/uploads/.git/HEAD", "/.svn/entries", "/wp-content/.svn/entries", "/wp-content/uploads/.svn/entries" ]:
             url = self.BASE_URL + path
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = requests.get(url=url, proxies=self.args.proxy, verify=False)
+            response = requests.get(url=url, proxies=self.args.proxy, verify=False, allow_redirects=False)
             try:
                 if response.status_code == 200:
                     ptprinthelper.ptprint(f"Repository discovered: {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
@@ -148,6 +152,7 @@ class SourceEnumeration:
 
         def check_url(url):
             """Funkce pro ověření jednoho URL"""
+            if not url.endswith("/"): url += "/"
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=print_text and not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
             try:
                 response = requests.get(url, timeout=5, proxies=self.args.proxy, verify=False)
@@ -164,6 +169,9 @@ class SourceEnumeration:
 
         return list(vuln_urls.queue)
 
+    def discover_logs(self):
+        return BackupsFinder(base_url=self.BASE_URL, args=self.args, ptjsonlib=self.ptjsonlib, head_method_allowed=self.head_method_allowed).run_log_discovery()
+
     def discover_backups(self):
         """Run BackupFinder moduel to discover backups on target server"""
-        return BackupsFinder(base_url=self.BASE_URL, args=self.args, ptjsonlib=self.ptjsonlib, head_method_allowed=self.head_method_allowed).run()
+        return BackupsFinder(base_url=self.BASE_URL, args=self.args, ptjsonlib=self.ptjsonlib, head_method_allowed=self.head_method_allowed).run_backup_discovery()

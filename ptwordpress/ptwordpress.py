@@ -64,25 +64,28 @@ class PtWordpress:
         self.rss_response: object        = None
         self.robots_txt_response: object = None
         self.is_enum_protected: bool     = None # Server returns 429 too many requests error
-        self.head_method_allowed: bool   = None
+        #self.head_method_allowed: bool  = None
         self.wp_version: str             = None
         self.routes_and_status_codes     = []
 
     def run(self, args) -> None:
         """Main method"""
-        self.base_response: object  = self._get_base_response(url=self.BASE_URL)
+        self.base_response: object = self._get_base_response(url=self.BASE_URL)
+        self.rest_response, self.rss_response, self.robots_txt_response = self.fetch_responses_in_parallel() # Parallel response retrieval
 
-        self.SourceFinder: object   = SourceEnumeration(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
-        self.UserEnumerator: object = UserEnumeration(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
+        self.check_if_target_is_wordpress(base_response=self.base_response, wp_json_response=None)
+        self.check_if_behind_cloudflare(base_response=self.base_response)
+
+        self.head_method_allowed: bool   = self._is_head_method_allowed(url=self.BASE_URL)
+        self.SourceFinder: object        = SourceEnumeration(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
+        self.UserEnumerator: object      = UserEnumeration(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
+        #self.UserEnumerator.run()
+        #self.SourceFinder.discover_backups()
+        #input(".")
 
         self.print_meta_tags(response=self.base_response)
+        self.parse_site_info_from_rest(rest_response=self.rest_response)
         self.print_html_comments(response=self.base_response)
-
-        self.check_if_behind_cloudflare(base_response=self.base_response)
-        self.check_if_target_is_wordpress(base_response=self.base_response, wp_json_response=None)
-
-        self.head_method_allowed: bool = self._is_head_method_allowed(url=self.BASE_URL)
-        self.rest_response, self.rss_response, self.robots_txt_response = self.fetch_responses_in_parallel() # Parallel response retrieval
 
         self.wp_version = self.get_wordpress_version() # metatags, base response, rss response, .... # TODO: pass as argument.
 
@@ -90,21 +93,28 @@ class PtWordpress:
         self.print_robots_txt(robots_txt_response=self.robots_txt_response)
         self.process_sitemap(robots_txt_response=self.robots_txt_response)
 
-        self.SourceFinder.print_media() # Scrape all uploaded public media
+        self.parse_authentication_from_rest(rest_response=self.rest_response)
+        self.parse_namespaces_from_rest(rest_response=self.rest_response)
+
         self.SourceFinder.discover_xml_rpc()
         self.SourceFinder.discover_admin_login_page()
+        self.SourceFinder.discover_config_files()
         self.SourceFinder.check_directory_listing(url_list=[self.BASE_URL + path for path in ["/assets", "/wp-content", "/wp-content/uploads", "/wp-content/plugins", "/wp-content/themes", "/wp-includes", "/wp-includes/js", ]])
-        self.SourceFinder.discover_backups()
 
-        if self.args.read_me and self._yes_no_prompt(f"Run README discovery attack @ {self.BASE_URL}/?"):
+        self.SourceFinder.discover_logs()
+        self.SourceFinder.discover_backups()
+        self.SourceFinder.discover_repositories()
+
+        if self.args.read_me:
             self.check_readme_txt(url=self.BASE_URL)
 
         self.wpscan_api.run(wp_version=self.wp_version, plugins=self.run_plugin_discovery(response=self.base_response), themes=self.run_theme_discovery(response=self.base_response))
-        self.parse_info_from_wp_json(wp_json=self.rest_response.json())
 
-        self.SourceFinder.discover_repositories()
-        self.SourceFinder.discover_config_files()
+        #if  self.rest_response:
         self.UserEnumerator.run()
+
+
+        self.SourceFinder.print_media() # Scrape all uploaded public media
 
         # TODO: Scan all routes, check for routes that are not auth protected (not 401)
         #APIRoutesWalker(self.args, self.ptjsonlib, self.rest_response).run()
@@ -139,18 +149,15 @@ class PtWordpress:
         #stop_event = threading.Event()
         #loader_thread = threading.Thread(target=loading_indicator, args=(stop_event,), daemon=True)
         #loader_thread.start()
-
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            future_rest = executor.submit(self._get_wp_json, url=self.REST_URL)           # example.com/wp-json/
+            future_rest = executor.submit(self._get_wp_json, url=self.REST_URL)                                                  # example.com/wp-json/
             future_rss = executor.submit(requests.get, self.BASE_URL + "/feed", proxies=self.args.proxy, verify=False)           # example.com/feed
             future_robots = executor.submit(requests.get, self.BASE_URL + "/robots.txt", proxies=self.args.proxy, verify=False)  # example.com/robots.txt
             rest_response = fetch_response_with_error_handling(future_rest, self.REST_URL)
             rss_response = fetch_response_with_error_handling(future_rss, self.BASE_URL + "/feed")
             robots_txt_response = fetch_response_with_error_handling(future_robots, self.BASE_URL + "/robots.txt")
-
         #stop_event.set()
         #loader_thread.join()
-
         return rest_response, rss_response, robots_txt_response
 
     def print_supported_versions(self, wp_version):
@@ -214,7 +221,7 @@ class PtWordpress:
         if comments:
             ptprint(f"HTML comments:", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
             for comment in comments:
-                ptprint(comment.strip(), "ADDITIONS", condition=not self.args.json, colortext=True, indent=4)
+                ptprint(comment.strip(), "TEXT", condition=not self.args.json, colortext=True, indent=4)
         return comments
 
     def get_wp_version_from_rss_feed(self, response):
@@ -228,9 +235,15 @@ class PtWordpress:
         for generator in generators:
             _wp_version = re.findall(r"wordpress.*?v=(.*)\b", generator.text, re.IGNORECASE)
             _wp_version = _wp_version[0] if _wp_version else None
-            if re.findall(r"wordpress.*?v=(.*)\b", generator.text, re.IGNORECASE):
-                ptprinthelper.ptprint(f"Wordpress {_wp_version} (RSS Feed: {response.url})", "TEXT", condition=not self.args.json, colortext=False, indent=4)
-                return _wp_version
+            if _wp_version:
+                break
+
+        if _wp_version:
+            ptprinthelper.ptprint(f"RSS Feed provide version of Wordpress: {_wp_version}", "VULN", condition=not self.args.json, colortext=False, indent=4)
+        else:
+            ptprinthelper.ptprint(f"RSS Feed does not provide version of Wordpress", "OK", condition=not self.args.json, colortext=False, indent=4)
+
+        return _wp_version
 
     def get_wordpress_version(self):
         """Retrieve wordpress version from metatags, rss feed, API, ... """
@@ -328,7 +341,7 @@ class PtWordpress:
                 ptprint(f"Theme {result[0].split("/")[-1]} ({result[0]}) is vulnerable to directory listing", "VULN", condition=not self.args.json, indent=4, newline_above=False)#True if themes_names else False)
 
         for url in path_to_themes:
-            if self.args.read_me and self._yes_no_prompt(f"Run README discovery attack @ {url}?"):
+            if self.args.read_me:
                 self.check_readme_txt(url)
 
         return list(themes_names)
@@ -379,7 +392,7 @@ class PtWordpress:
                 ptprint(f"Plugin {result[0].split("/")[-1]} ({result[0]}) is vulnerable to directory listing", "VULN", condition=not self.args.json, indent=4, newline_above=True if plugins else False)
 
         for url in paths_to_plugins:
-            if self.args.read_me and self._yes_no_prompt(f"Run README discovery attack @ {url}?"):
+            if self.args.read_me:
                 self.check_readme_txt(url)
         return list(plugins.keys())
 
@@ -393,7 +406,7 @@ class PtWordpress:
 
     def check_readme_txt(self, url):
         """Dictionary attack"""
-        ptprint(f"README DISCOVERY @ {url}:", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True, clear_to_eol=True)
+        ptprint(f"Readme discovery: {url}", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True, clear_to_eol=True)
         path_to_wordlist = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "modules", "wordlists", "readme.txt")
         vuln_urls = Queue() # Thread safe fronta
 
@@ -401,24 +414,24 @@ class PtWordpress:
             wordlist = [line.strip() for line in file.readlines()]
 
         def check_url(line):
-                full_url = f"{url}/{line}"
-                ptprinthelper.ptprint(f"{full_url}", "ADDITIONS", not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-                try:
-                    response = requests.request(method="HEAD" if self.head_method_allowed else "GET", url=full_url, verify=False, proxies=self.args.proxy, allow_redirects=False)
-                    if response.status_code == 200:
-                        ptprinthelper.ptprint(response.url, "VULN", not self.args.json, flush=True, indent=4, clear_to_eol=True)
-                        vuln_urls.put(response.url) # Thread safe
-                    if response.status_code == 429:
-                        ptprinthelper.ptprint("Too many requests error.", "WARNING", not self.args.json, flush=True, indent=4, clear_to_eol=True)
-                except Exception as e:
-                    pass
+            full_url = f"{url}/{line}"
+            ptprinthelper.ptprint(f"{full_url}", "ADDITIONS", not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
+            try:
+                response = requests.request(method="HEAD" if self.head_method_allowed else "GET", url=full_url, verify=False, proxies=self.args.proxy, allow_redirects=False)
+                if response.status_code == 200:
+                    ptprinthelper.ptprint(response.url, "VULN", not self.args.json, flush=True, indent=4, clear_to_eol=True)
+                    vuln_urls.put(response.url) # Thread safe
+                if response.status_code == 429:
+                    ptprinthelper.ptprint("Too many requests error.", "WARNING", not self.args.json, flush=True, indent=4, clear_to_eol=True)
+            except Exception as e:
+                pass
 
         # Použití ThreadPoolExecutor pro paralelní requesty
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             executor.map(check_url, wordlist)
 
         vuln_urls = list(vuln_urls.queue)
-        ptprinthelper.ptprint(f"None" if not vuln_urls else " ", "TEXT", not self.args.json, end="\n", flush=True, colortext=True, indent=4, clear_to_eol=True)
+        ptprinthelper.ptprint(f"No readme files discovered" if not vuln_urls else " ", "OK" if not vuln_urls else "TEXT", not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
 
     def _process_meta_tags(self):
         ptprinthelper.ptprint(f"Meta tags:", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
@@ -462,44 +475,63 @@ class PtWordpress:
                     if node["key"] == dict_["id"]:
                         node["properties"].update({"status_code": dict_["status_code"]})
 
-    def parse_info_from_wp_json(self, wp_json: dict):
-        """
-        Collects and stores basic information about the target from wp-json
-        """
-        if self.rest_response and not self.rest_response.status_code == 200: return
-
-        ptprinthelper.ptprint(f"Site info:", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-
-        site_description = wp_json.get("description", "")
-        site_name = wp_json.get("name", "")
-        site_home = wp_json.get("home", "")
-        site_gmt = wp_json.get("gmt_offset", "")
-        site_timezone = wp_json.get("timezone_string", "")
-        _timezone =  f"{str(site_timezone)} (GMT{'+' if not '-' in str(site_gmt) else '-'}{str(site_gmt)})" if site_timezone else ""
-
-        ptprinthelper.ptprint(f"Name: {site_name}", "TEXT", condition=not self.args.json, indent=4)
-        ptprinthelper.ptprint(f"Description: {site_description}", "TEXT", condition=not self.args.json, indent=4)
-        ptprinthelper.ptprint(f"Home: {site_home}", "TEXT", condition=not self.args.json, indent=4)
-        ptprinthelper.ptprint(f"Timezone: {_timezone}", "TEXT", condition=not self.args.json, indent=4)
-
-        authentication = wp_json.get("authentication", [])
+    def parse_authentication_from_rest(self, rest_response):
+        ptprinthelper.ptprint(f"Authentication:", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        if not self.try_parse_response_json(rest_response=rest_response):
+            return
+        rest_response = rest_response.json()
+        authentication = rest_response.get("authentication", [])
         if authentication:
-            ptprinthelper.ptprint(f"Authentication:", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
             for auth in authentication:
                 ptprinthelper.ptprint(f"{auth}", "TEXT", condition=not self.args.json, indent=4)
 
-        namespaces = wp_json.get("namespaces", [])
+    def parse_namespaces_from_rest(self, rest_response):
+        ptprinthelper.ptprint(f"Namespaces (API provided by addons):", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        if not self.try_parse_response_json(rest_response=rest_response):
+            return
+        rest_response = rest_response.json()
+        namespaces = rest_response.get("namespaces", [])
         with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "modules", "wordlists", "plugin_list.csv"), mode='r') as file:
             csv_reader = csv.reader(file)
             csv_data = list(csv_reader)
 
         if "wp/v2" in namespaces: # wp/v2 is prerequirement
             #has_v2 = True
-            ptprinthelper.ptprint(f"Namespaces (API provided by addons):", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
             for namespace in namespaces:
                 namespace_description = self.find_description_in_csv(csv_data, namespace)
                 ptprinthelper.ptprint(f"{namespace} {namespace_description}", "TEXT", condition=not self.args.json, indent=4)
-        return
+
+
+    def try_parse_response_json(self, rest_response):
+        try:
+            if rest_response is not None and rest_response.status_code != 200:
+                raise Exception
+            return rest_response.json()
+        except Exception as e:
+            ptprinthelper.ptprint("API Blocked", "OK", condition=not self.args.json, indent=4)
+
+    def parse_site_info_from_rest(self, rest_response):
+        ptprinthelper.ptprint(f"Site info:", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        try:
+            rest_response.json()
+            if rest_response is not None and rest_response.status_code != 200:
+                raise Exception
+        except Exception as e:
+            ptprinthelper.ptprint("API Blocked", "OK", condition=not self.args.json, indent=4)
+            return
+
+        rest_response = rest_response.json()
+        site_description = rest_response.get("description", "")
+        site_name = rest_response.get("name", "")
+        site_home = rest_response.get("home", "")
+        site_gmt = rest_response.get("gmt_offset", "")
+        site_timezone = rest_response.get("timezone_string", "")
+        _timezone =  f"{str(site_timezone)} (GMT{'+' if not '-' in str(site_gmt) else '-'}{str(site_gmt)})" if site_timezone else ""
+
+        ptprinthelper.ptprint(f"Name: {site_name}", "TEXT", condition=not self.args.json, indent=4)
+        ptprinthelper.ptprint(f"Description: {site_description}", "TEXT", condition=not self.args.json, indent=4)
+        ptprinthelper.ptprint(f"Home: {site_home}", "TEXT", condition=not self.args.json, indent=4)
+        ptprinthelper.ptprint(f"Timezone: {_timezone}", "TEXT", condition=not self.args.json, indent=4)
 
     def check_if_target_is_wordpress(self, base_response: object, wp_json_response: object) -> bool:
         """Checks if target runs wordpress, if not script will be terminated."""

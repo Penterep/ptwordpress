@@ -18,14 +18,14 @@ class BackupsFinder:
         self.domain      = ((self.extract_result.subdomain + ".") if self.extract_result.subdomain else "") + self.extract_result.domain + "." + self.extract_result.suffix
         self.scheme      = self.extract_result.scheme
 
-    def run(self) -> list:
+    def run_backup_discovery(self) -> list:
         """Main function, returns set of vulnerable urls."""
+        self.vulnerable_urls = Queue()
         ptprinthelper.ptprint(f"Backups discovery", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         domain = ((self.extract_result.subdomain + ".") if self.extract_result.subdomain else "") + self.extract_result.domain + "." + self.extract_result.suffix
         base_domain = self.extract_result.domain + "." + self.extract_result.suffix
 
         self.check_backup(domain)
-        self.check_log_files(domain)
         self.check_specific_files(domain)
         self.check_wp_config(domain)
         self.check_domain_files(base_domain)
@@ -37,6 +37,18 @@ class BackupsFinder:
             ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, flush=True, clear_to_eol=True, end="")
 
         return list(self.vulnerable_urls)
+
+    def run_log_discovery(self):
+        self.vulnerable_urls = Queue()
+        ptprinthelper.ptprint(f"Logs discovery", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        domain = ((self.extract_result.subdomain + ".") if self.extract_result.subdomain else "") + self.extract_result.domain + "." + self.extract_result.suffix
+        self.check_log_files(domain)
+
+        self.vulnerable_urls = set(list(self.vulnerable_urls.queue))
+        if not self.vulnerable_urls:
+            ptprinthelper.ptprint(f"No log files discovered", "OK", condition=not self.args.json, indent=4, flush=True, clear_to_eol=True)
+        else:
+            ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, flush=True, clear_to_eol=True, end="")
 
     def check_url(self, url):
         """Funkce pro ověření, zda soubor/adresář existuje"""
@@ -92,10 +104,8 @@ class BackupsFinder:
             # Spuštění všech kontrol pro různé přípony
             executor.map(lambda ext: [self.check_url(f"{self.scheme}://{self.domain}{path}{domain_name}.{ext}") for path in ["/", "/wp-content/"]], extensions)
 
-
     def check_log_files(self, domain):
         path_to_wordlist = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", "logs.txt")
-
         with open(path_to_wordlist, "r") as file:
             paths = (path.strip() for path in file.readlines())  # Generátor pro slova
 

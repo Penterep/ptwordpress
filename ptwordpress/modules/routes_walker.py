@@ -15,8 +15,7 @@ class APIRoutesWalker:
 
     def get_routes_to_test(self, response_json: dict):
         for route, route_data in response_json.items():
-            input((route, route_data))
-
+            pass
 
     def parse_routes_into_nodes(self, url: str) -> list:
         rest_url = self.REST_URL
