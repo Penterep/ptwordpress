@@ -121,7 +121,6 @@ class PtWordpress:
         self.print_supported_versions(wp_version=self.wp_version) # From API
         self.print_robots_txt(robots_txt_response=self.robots_txt_response)
         self.process_sitemap(robots_txt_response=self.robots_txt_response)
-        self.wpscan_api.run(wp_version=self.wp_version, plugins=self.run_plugin_discovery(response=self.base_response), themes=self.run_theme_discovery(response=self.base_response))
 
         #self.parse_authentication_from_rest(rest_response=self.rest_response)
         self.parse_namespaces_from_rest(rest_response=self.rest_response)
@@ -130,8 +129,6 @@ class PtWordpress:
         self.SourceFinder.discover_admin_login_page()
         self.SourceFinder.discover_config_files()
         self.SourceFinder.check_directory_listing(url_list=[self.BASE_URL + path for path in ["/assets", "/wp-content", "/wp-content/uploads", "/wp-content/plugins", "/wp-content/themes", "/wp-includes", "/wp-includes/js", ]])
-
-        self.UserEnumerator.run()
         self.email_scraper.print_result()
 
         self.SourceFinder.discover_logs()
@@ -385,9 +382,9 @@ class PtWordpress:
             themes_names.add(theme_name)
 
         for theme_name in themes_names:
-            ptprint(theme_name, "TEXT", condition=not self.args.json, indent=4)
+            ptprint(theme_name, "ADDITIONS", condition=not self.args.json, indent=4)
         if not themes_names:
-            ptprint("None", "TEXT", condition=not self.args.json, indent=4)
+            ptprint("No theme discovered", "OK", condition=not self.args.json, indent=4)
 
         # Directory listing test
         vulnerable_urls = []
@@ -441,13 +438,13 @@ class PtWordpress:
         # Print plugins
         for plugin_name, versions in plugins.items():
             for version, urls in versions.items():
-                ptprint(f"{plugin_name} ({version})", "TEXT", condition=not self.args.json, indent=4, colortext="TITLE")
+                ptprint(f"{plugin_name} ({version})", "TEXT", condition=not self.args.json, indent=4)
                 #ptprint(f"{version}", "TEXT", condition=not self.args.json, indent=4+4)
                 for url in urls:
-                    ptprint(url, "TEXT", condition=not self.args.json, indent=8)
+                    ptprint(url, "ADDITIONS", condition=not self.args.json, indent=8, colortext=True)
 
         if not plugins:
-            ptprint("None", "TEXT", condition=not self.args.json, indent=4)
+            ptprint("No plugins discovered", "OK", condition=not self.args.json, indent=4)
 
         # Directory listing test
         vulnerable_urls = []

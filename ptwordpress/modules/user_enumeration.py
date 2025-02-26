@@ -61,10 +61,10 @@ class UserEnumeration:
         unique_slugs = sorted(unique_slugs)
 
         if not unique_slugs:
-            ptprinthelper.ptprint("No logins enumerated", "OK", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True)
+            ptprinthelper.ptprint("No logins enumerated", "OK", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
 
         for slug in unique_slugs:
-            ptprinthelper.ptprint(slug, "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True)
+            ptprinthelper.ptprint(slug, "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
 
         if self.args.output:
             filename = self.args.output + "-usernames.txt"
@@ -200,7 +200,7 @@ class UserEnumeration:
         results = []
         seen_users = set()
         with ThreadPoolExecutor(max_workers=10) as executor:
-            page_range = range(1, 100)  # Počínaje stránkou 1 až do 99
+            page_range = range(1, 100)
             for i in range(0, len(page_range), 10):  # Posíláme po 10 stránkách najednou
                 futures = {executor.submit(fetch_page, page_range[j]): page_range[j] for j in range(i, min(i + 10, len(page_range)))}
                 # Zpracování výsledků
@@ -371,6 +371,8 @@ class UserEnumeration:
                     ptprinthelper.ptprint(f"{creator}", "VULN", condition=not self.args.json, colortext=False, indent=4)
                     result =  {"id": "", "name": creator, "slug": ""}
                     self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, result)
+            if not creators:
+                ptprinthelper.ptprint(f"No authors discovered via RSS feed", "OK", condition=not self.args.json, indent=4)
         else:
             ptprinthelper.ptprint(f"RSS feed not available", "TEXT", condition=not self.args.json, indent=4)
 

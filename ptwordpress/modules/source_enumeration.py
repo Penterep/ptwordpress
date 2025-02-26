@@ -112,7 +112,7 @@ class SourceEnumeration:
         for path in ["/.htaccess", "/.htpasswd"]:
             url = self.BASE_URL + path
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = requests.get(url=url, proxies=self.args.proxy, verify=False)
+            response = requests.get(url=url, proxies=self.args.proxy, verify=False, allow_redirects=False)
             try:
                 if response.status_code == 200:
                     ptprinthelper.ptprint(f"Allowed access to config file: {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
