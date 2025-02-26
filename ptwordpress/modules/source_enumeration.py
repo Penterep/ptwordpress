@@ -83,8 +83,8 @@ class SourceEnumeration:
         </methodCall>'''
         ptprinthelper.ptprint(f"{self.BASE_URL}/xmlrpc.php", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         response = requests.post(f"{self.BASE_URL}/xmlrpc.php", proxies=self.args.proxy, verify=False, data=xml_data, allow_redirects=False)
+        ptprinthelper.ptprint(f"[{response.status_code}] {response.url}", "TEXT", condition=not self.args.json, indent=4)
         ptprinthelper.ptprint(f"Script xmlrpc.php is {'available' if response.status_code == 200 else 'not available'}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
-        ptprinthelper.ptprint(f"[{response.status_code}] {response.url}", "TEXT", condition=not self.args.json, indent=8)
 
         #ptprinthelper.ptprint(f"[{response.status_code}] {http.client.responses.get(response.status_code, 'Unknown status code')} {'Available' if response.status_code == 200 else ''}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4) 
 

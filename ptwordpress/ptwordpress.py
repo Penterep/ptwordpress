@@ -50,6 +50,8 @@ from modules.dual_output import DualOutput
 
 import defusedxml.ElementTree as ET
 
+from modules.plugins.emails import Emails, get_emails_instance
+
 from bs4 import BeautifulSoup, Comment
 
 
@@ -68,6 +70,32 @@ class PtWordpress:
         self.wp_version: str             = None
         self.routes_and_status_codes     = []
 
+
+    def parse_google_identifiers(self, response):
+        ptprinthelper.ptprint(f"Google identifiers:", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+
+        regulars = [
+            r"(GTM-[A-Z0-9]{6,9})",
+            r"(UA-\d{4,10}-\d+)",
+            r"(G-[A-Z0-9]{8,12})",
+            r"(AW-\d{9,12})",
+            r"(DC-\d{6,10})",
+            r"(ca-pub-\d{16})",
+            r"(ca-ads-\d{16})",
+            r"AIza[0-9A-z_\-\\]{35}",
+        ]
+
+        # Kombinování všech regulárních výrazů do jednoho pro použití v re.findall
+        combined_regex = '|'.join(regulars)
+        # Hledání všech shod v response.text
+        identifiers = re.findall(combined_regex, response.text)
+        identifiers = [identifier[0] for identifier in identifiers if identifier[0]]  # Pouze nenulové hodnoty
+        if identifiers:
+            ptprinthelper.ptprint('\n    '.join(identifiers), "TEXT", condition=not self.args.json, indent=4)
+        else:
+            ptprint(f"No identifiers found", "OK", condition=not self.args.json, indent=4)
+
+
     def run(self, args) -> None:
         """Main method"""
         self.base_response: object = self._get_base_response(url=self.BASE_URL)
@@ -79,12 +107,13 @@ class PtWordpress:
         self.head_method_allowed: bool   = self._is_head_method_allowed(url=self.BASE_URL)
         self.SourceFinder: object        = SourceEnumeration(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
         self.UserEnumerator: object      = UserEnumeration(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
-        #self.UserEnumerator.run()
+        self.email_scraper               = get_emails_instance(args=self.args)
+
         #self.SourceFinder.discover_backups()
-        #input(".")
 
         self.print_meta_tags(response=self.base_response)
         self.parse_site_info_from_rest(rest_response=self.rest_response)
+        self.parse_google_identifiers(response=self.base_response)
         self.print_html_comments(response=self.base_response)
 
         self.wp_version = self.get_wordpress_version() # metatags, base response, rss response, .... # TODO: pass as argument.
@@ -92,14 +121,18 @@ class PtWordpress:
         self.print_supported_versions(wp_version=self.wp_version) # From API
         self.print_robots_txt(robots_txt_response=self.robots_txt_response)
         self.process_sitemap(robots_txt_response=self.robots_txt_response)
+        self.wpscan_api.run(wp_version=self.wp_version, plugins=self.run_plugin_discovery(response=self.base_response), themes=self.run_theme_discovery(response=self.base_response))
 
-        self.parse_authentication_from_rest(rest_response=self.rest_response)
+        #self.parse_authentication_from_rest(rest_response=self.rest_response)
         self.parse_namespaces_from_rest(rest_response=self.rest_response)
 
         self.SourceFinder.discover_xml_rpc()
         self.SourceFinder.discover_admin_login_page()
         self.SourceFinder.discover_config_files()
         self.SourceFinder.check_directory_listing(url_list=[self.BASE_URL + path for path in ["/assets", "/wp-content", "/wp-content/uploads", "/wp-content/plugins", "/wp-content/themes", "/wp-includes", "/wp-includes/js", ]])
+
+        self.UserEnumerator.run()
+        self.email_scraper.print_result()
 
         self.SourceFinder.discover_logs()
         self.SourceFinder.discover_backups()
@@ -162,6 +195,26 @@ class PtWordpress:
 
     def print_supported_versions(self, wp_version):
         """Print supported wordpress versions"""
+        def format_versions(versions: list):
+            formatted_output = "    "
+            major_version = None
+            line_parts = []
+
+            for version in versions:
+                major = version.split('.')[0]
+                if major_version is None:
+                    major_version = major
+
+                if major != major_version:
+                    formatted_output += ', '.join(line_parts) + ',\n    '
+                    line_parts = []
+                    major_version = major
+
+                line_parts.append(version)
+
+            formatted_output += ', '.join(line_parts)  # Add last row
+            return formatted_output
+
         ptprint(f"Supported version:", "INFO", not self.args.json, colortext=True, newline_above=True)
         response: object = self.load_url("https://api.wordpress.org/core/version-check/1.7/")
         latest_available_version: str = response.json()["offers"][0]["version"]
@@ -174,8 +227,9 @@ class PtWordpress:
                 index += 1
             except IndexError:
                 break
+
         ptprint(f"Recommended version: {latest_available_version}", "TEXT", not self.args.json, indent=4)
-        ptprint(f"Supported versions: {', '.join(supported_versions)}", "TEXT", not self.args.json, indent=4)
+        ptprint(f"Supported versions:\n{format_versions(supported_versions)}", "TEXT", not self.args.json, indent=4)
         if self.wp_version is None:
             ptprint(f"Unknown wordpress version", "WARNING", not self.args.json, indent=4)
         elif self.wp_version not in supported_versions:
@@ -232,6 +286,7 @@ class PtWordpress:
             ptprinthelper.ptprint(f"Error decoding XML feed", "ERROR", condition=not self.args.json, indent=4)
             return
         generators: list = root.findall(".//generator")
+        _wp_version = None
         for generator in generators:
             _wp_version = re.findall(r"wordpress.*?v=(.*)\b", generator.text, re.IGNORECASE)
             _wp_version = _wp_version[0] if _wp_version else None
@@ -308,7 +363,7 @@ class PtWordpress:
             if _sitemap_url:
                 ptprint(f"Sitemap{'s' if len(_sitemap_url) > 1 else ''} in robots.txt:", "OK", condition=not self.args.json, indent=4)
                 for url in _sitemap_url:
-                    ptprint(f"{url}", "TEXT", condition=not self.args.json, indent=4+4)
+                    ptprint(f"{url}", "TEXT", condition=not self.args.json, indent=4+3)
 
     def run_theme_discovery(self, response) -> list:
         """Theme discovery"""
@@ -335,10 +390,19 @@ class PtWordpress:
             ptprint("None", "TEXT", condition=not self.args.json, indent=4)
 
         # Directory listing test
+        vulnerable_urls = []
         for url in path_to_themes:
             result = self.SourceFinder.check_directory_listing(url_list=[url], print_text=False)
             if result:
-                ptprint(f"Theme {result[0].split("/")[-1]} ({result[0]}) is vulnerable to directory listing", "VULN", condition=not self.args.json, indent=4, newline_above=False)#True if themes_names else False)
+                vulnerable_urls.extend(result)
+
+        #if vulnerable_urls:
+        #    ptprint(f" ", "TEXT", condition=not self.args.json)
+
+        for vuln_url in vulnerable_urls:
+            ptprint(f"Theme {vuln_url.split("/")[-2]} ({vuln_url}) is vulnerable to directory listing", "VULN", condition=not self.args.json, indent=4)
+
+
 
         for url in path_to_themes:
             if self.args.read_me:
@@ -376,20 +440,26 @@ class PtWordpress:
 
         # Print plugins
         for plugin_name, versions in plugins.items():
-            ptprint(f"{plugin_name}", "TEXT", condition=not self.args.json, indent=4, colortext="TITLE")
             for version, urls in versions.items():
-                ptprint(f"{version}", "TEXT", condition=not self.args.json, indent=4+4)
+                ptprint(f"{plugin_name} ({version})", "TEXT", condition=not self.args.json, indent=4, colortext="TITLE")
+                #ptprint(f"{version}", "TEXT", condition=not self.args.json, indent=4+4)
                 for url in urls:
-                    ptprint(url, "TEXT", condition=not self.args.json, indent=4+4+4)
+                    ptprint(url, "TEXT", condition=not self.args.json, indent=8)
 
         if not plugins:
             ptprint("None", "TEXT", condition=not self.args.json, indent=4)
 
         # Directory listing test
+        vulnerable_urls = []
         for url in paths_to_plugins:
             result = self.SourceFinder.check_directory_listing(url_list=[url], print_text=False)
             if result:
-                ptprint(f"Plugin {result[0].split("/")[-1]} ({result[0]}) is vulnerable to directory listing", "VULN", condition=not self.args.json, indent=4, newline_above=True if plugins else False)
+                vulnerable_urls.extend(result)
+
+        if vulnerable_urls:
+            ptprint(f" ", "TEXT", condition=not self.args.json)
+        for vuln_url in vulnerable_urls:
+            ptprint(f"Plugin {vuln_url.split("/")[-2]} ({vuln_url}) is vulnerable to directory listing", "VULN", condition=not self.args.json, indent=4, newline_above=False)
 
         for url in paths_to_plugins:
             if self.args.read_me:
@@ -635,10 +705,11 @@ def get_help():
         ]},
         {"options": [
             ["-u",  "--url",                    "<url>",                "Connect to URL"],
+            ["-rm",  "--read-me",               "",                     "Enable readme dictionary attacks"],
+            ["-o",  "--output",                "<file>",                "Save emails, users, logins and media urls"],
             ["-wpsk", "--wpscan-key",           "<api-key>",            "Set WPScan API key (https://wpscan.com)"],
-            ["-p",  "--proxy",                  "<proxy>",              "Set Proxy"],
             ["-T",  "--timeout",                "",                     "Set Timeout"],
-            ["-o",  "--output",                "<file>",                     "Set output file"],
+            ["-p",  "--proxy",                  "<proxy>",              "Set Proxy"],
             ["-c",  "--cookie",                 "<cookie>",             "Set Cookie"],
             ["-a", "--user-agent",              "<agent>",              "Set User-Agent"],
             ["-ar", "--author-range",           "<author-range>",       "Set custom range for author enumeration (e.g. 1000-1300)"],
@@ -647,7 +718,6 @@ def get_help():
             #["-wu", "--wordlist-sources",       "<source_wordlist>",    "Set Custom wordlist for source enumeration"],
             ["-H",  "--headers",                "<header:value>",       "Set Header(s)"],
             ["-r",  "--redirects",              "",                     "Follow redirects (default False)"],
-            ["-rm",  "--read-me",               "",                     "Enable readme dictionary attacks"],
             ["-C",  "--cache",                  "",                     "Cache HTTP communication"],
             ["-v",  "--version",                "",                     "Show script version and exit"],
             ["-h",  "--help",                   "",                     "Show this help message and exit"],
@@ -713,6 +783,8 @@ def parse_args():
     args.proxy = {"http": args.proxy, "https": args.proxy} if args.proxy else None
     args.user_agent  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.6533.100 Safari/537.36"
     args.headers = ptnethelper.get_request_headers(args)
+    if args.output:
+        args.output = os.path.abspath(args.output)
 
     ptprinthelper.print_banner(SCRIPTNAME, __version__, args.json, space=0)
     return args

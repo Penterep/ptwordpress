@@ -24,12 +24,20 @@ class YoastScraper:
     def print_result(self):
         if all(not v for v in self.result.values()):
             return
+
+        for key in self.result:
+            if isinstance(self.result[key], set):  # Pokud je hodnota set
+                self.result[key] = {val for val in self.result[key] if val != ""}
+
         ptprinthelper.ptprint("Yoast interesting metatags:", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
         for key, value in self.result.items():
-            #print(f"    {key.upper()}:")
-            ptprinthelper.ptprint(f"{key.upper()}:", "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE")
-            if key.upper() == "TWITTERS": value = ["https://twitter.com/" + val for val in value]
-            ptprinthelper.ptprint("        " + '\n        '.join(value), "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE")
+            if not value:
+                continue
+            ptprinthelper.ptprint(f"{key.capitalize()}:", "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True, colortext="TITLE")
+            if key.upper() == "TWITTERS" and value:
+                value = ["https://twitter.com/" + val.split("@")[-1] for val in value]
+
+            ptprinthelper.ptprint('\n        '.join(value), "TEXT", condition=not self.args.json, flush=True, indent=8, clear_to_eol=True, colortext="TITLE")
 
     def find_key_in_json(self, data, target_key) -> list:
         try:

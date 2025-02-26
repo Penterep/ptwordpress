@@ -14,6 +14,7 @@ from modules.write_to_file import write_to_file
 #from modules.rss_feed_enumerator import RssFeedEnumerator
 
 from modules.plugins.yoast import YoastScraper
+from modules.plugins.emails import Emails, get_emails_instance
 
 class UserEnumeration:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed):
@@ -29,29 +30,27 @@ class UserEnumeration:
 
         self.thread_lock = Lock()
         self.yoast_scraper = YoastScraper(args=self.args)
-        self.RESULT_QUERY = Queue() # bude obsahovat slovnik? {"id": 1, "username": "user", "full_name": "fullname"}
+        self.RESULT_QUERY = Queue()
+
+        self.email_scraper = get_emails_instance(args=self.args)
 
         #self.rss_feed_enumerator = RssFeedEnumerator(base_url=self.BASE_URL, args=self.args)
         #self.rss_feed_enumerator.run()
-        #input(".")
 
     def run(self):
-
         self._enumerate_users_by_rss_feed()
-        self._enumerate_users_by_author_name()       # example.com/author/<author> (dictionary attack)
-        self._enumerate_users_by_author_id()         # example.com/?author=<id> (range attack)
-
+        self._enumerate_users_by_author_name()        # example.com/author/<author> (dictionary attack)
+        self._enumerate_users_by_author_id()          # example.com/?author=<id> (range attack)
         #self._enumerate_users_by_users()             # example.com/wp-json/wp/v2/users
-        self._enumerate_users_by_users_paginator()   # example.com/wp-json/wp/v2/users?page=<id>&per_page=100
+        self._enumerate_users_by_users_paginator()    # example.com/wp-json/wp/v2/users?page=<id>&per_page=100
         self._enumerate_users_by_posts()
-        self.yoast_scraper.print_result()
         #self.map_user_id_to_slug()
-        self.print_enumerated_users_table()          #
-        self.print_unique_slugs()
+        self.print_enumerated_users_table()           #
+        self.print_unique_logins()
         #self.print_vulnerable_endpoints()
+        self.yoast_scraper.print_result()
 
-
-    def print_unique_slugs(self):
+    def print_unique_logins(self):
         users = list(self.RESULT_QUERY.queue)
         ptprinthelper.ptprint("Discovered logins:", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
         if not users:
@@ -59,19 +58,16 @@ class UserEnumeration:
 
         # Získání unikátních slugs (použijeme set pro odstranění duplicit)
         unique_slugs = set(user["slug"] for user in users if user["slug"])
-
-        # Seřaď unikátní slugs
         unique_slugs = sorted(unique_slugs)
 
-        # Výpis unikátních slugs
+        if not unique_slugs:
+            ptprinthelper.ptprint("No logins enumerated", "OK", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True)
+
         for slug in unique_slugs:
             ptprinthelper.ptprint(slug, "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True)
 
         if self.args.output:
             filename = self.args.output + "-usernames.txt"
-            #if "." in self.args.output:
-            #    splitted = self.args.output.split(".")
-            #    filename = f"{splitted[0]}-usernames.{splitted[-1]}"
             write_to_file(filename, '\n'.join(unique_slugs))
 
     def print_enumerated_users_table(self):
@@ -87,16 +83,21 @@ class UserEnumeration:
 
         # Krok 1: Najít maximální délku pro každý sloupec
         try:
-            max_id_len = max(len(str(user["id"])) for user in users)
-            max_name_len = max(len(user["name"]) for user in users)
-            max_slug_len = max(len(user["slug"]) for user in users)
-            ptprinthelper.ptprint(f"{'ID':<{max_id_len}}    {'NAME':<{max_name_len}}    {'LOGIN':<{max_slug_len}}", "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE")
+            max_id_len   = max(max(len(str(user["id"])) for user in users), 2) + 2
+            max_name_len = max(len(user["name"]) for user in users) + 2
+            max_slug_len = max(len(user["slug"]) for user in users) + 2
+
+            #input((max_id_len, max_name_len, max_slug_len))
+
+            ptprinthelper.ptprint(f"ID{' '*(max_id_len-2)}LOGIN{' '*(max_slug_len-5)}NAME", "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True, colortext="TITLE")
             #ptprinthelper.ptprint("-" * (max_id_len + max_name_len + max_slug_len + 6), "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True)
             user_lines = list()
             for user in users:
-                ptprinthelper.ptprint(f"{user['id']:<{max_id_len}}    {user['name']:<{max_name_len}}    {user['slug']:<{max_slug_len}}", "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True)
+                ptprinthelper.ptprint(f'{user["id"]}{" "*(max_id_len-len(user["id"]))}{user["slug"]}{" "*(max_slug_len-len(user["slug"]))}{user["name"]}', "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+                #ptprinthelper.ptprint(f"{user['id']}{' ' * (max_id_len - len(user['id']))}{user['name']}{' ' *(max_name_len - len(user['name']))}{user['slug']}{' ' *(max_slug_len - len(user['slug']))}", "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True)
                 user_lines.append(f"{user['id']}:{user.get('slug')}:{user['name']}")
-        except:
+        except Exception as e:
+            print(e)
             return
 
         if self.args.output:
@@ -139,7 +140,7 @@ class UserEnumeration:
 
                 for user_object in response.json():
                     result = {"id": str(user_object.get("id", "")), "slug": user_object.get("slug", ""), "name": user_object.get("name", "")}
-                    ptprinthelper.ptprint(f"{result['id']}{' '*(8-len(result['id']))}{result['slug']}{' '*(40-len(result['slug']))}{result['name']}", "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+                    ptprinthelper.ptprint(f"{result['id']}{' '*(8-len(result['id']))}{result['slug']}{' '*(40-len(result['slug']))}{result['name']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
 
                     self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, result)
                     author_id = user_object.get("id")
@@ -170,6 +171,7 @@ class UserEnumeration:
 
                 with self.thread_lock:
                     self.yoast_scraper.parse_posts(data=response.json())
+                    self.email_scraper.parse_emails_from_response(response=response)
 
                 for post in posts:
                     result = {
@@ -186,9 +188,9 @@ class UserEnumeration:
                     if result["id"]:
                         result = self.map_user_id_to_slug(user_id=result["id"])
                         if not result["slug"] and not result["name"]:
-                            ptprinthelper.ptprint(f"{result['id']}", "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+                            ptprinthelper.ptprint(f"{result['id']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
                         else:
-                            ptprinthelper.ptprint(f"{result['id']}{' '*(8-len(result['id']))}{result['slug']}{' '*(40-len(result['slug']))}{result['name']}", "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+                            ptprinthelper.ptprint(f"{result['id']}{' '*(8-len(result['id']))}{result['slug']}{' '*(40-len(result['slug']))}{result['name']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
 
                         results.append(result)
                 return results
@@ -275,9 +277,7 @@ class UserEnumeration:
             response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False)
 
             if response.status_code == 200:
-                #title = (re.search(r"<title>(.*?)</title>", response.text, re.IGNORECASE | re.DOTALL) or ["No title"])[1].strip()
                 title = self._extract_name_from_title(response)
-                #print("TITLE:", title)
                 ptprinthelper.ptprint(f"[{response.status_code}] {url}    {title}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
                 return {"id": "", "name": title, "slug": author_name}
 
@@ -368,7 +368,7 @@ class UserEnumeration:
                 creator = creator.text.strip()
                 if creator not in rss_authors:
                     rss_authors.add(creator)
-                    ptprinthelper.ptprint(f"{creator}", "TEXT", condition=not self.args.json, colortext=False, indent=4)
+                    ptprinthelper.ptprint(f"{creator}", "VULN", condition=not self.args.json, colortext=False, indent=4)
                     result =  {"id": "", "name": creator, "slug": ""}
                     self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, result)
         else:
@@ -469,7 +469,7 @@ class UserEnumeration:
             email_from_title = re.match(r"([\w\.-]+@[\w\.-]+\.?\w+)", title)
             if email_from_title:
                 email_from_title = email_from_title.group(1)
-            
+
             if not email_from_title:
                 name_from_title = re.match(r"^([A-Za-zá-žÁ-Ž0-9._-]+(?:\s[A-Za-zá-žÁ-Ž0-9._-]+)*)\s*[\|\-–—‒―‽·•#@*&,]+", title)
                 if name_from_title:
@@ -483,35 +483,6 @@ class UserEnumeration:
             print(e)
             #return ""
 
-    """
-    def update_queue(self, queue, user_data):
-        # Dočasně vyprázdni frontu
-        temp_queue = Queue()
-
-        # Projdi původní frontu a zkopíruj položky do dočasné fronty
-        found = False  # Flag, který nám pomůže zjistit, zda jsme našli záznam s tímto ID
-        while not queue.empty():
-            item = queue.get()
-            if item.get("id") == user_data.get("id"):
-                # Pokud položka s tímto ID existuje, slouč ji
-                found = True
-                # Aktualizuj pouze ty hodnoty, které jsou prázdné
-                if not item.get("slug") and user_data.get("slug"):
-                    item["slug"] = user_data["slug"]
-                if not item.get("name") and user_data.get("name"):
-                    item["name"] = user_data["name"]
-            # Přidej upravený (nebo nezměněný) záznam do dočasné fronty
-            temp_queue.put(item)
-
-        # Pokud jsme nenašli záznam, přidej nový
-        if not found:
-            temp_queue.put(user_data)
-
-        # Nahradíme původní frontu
-        return temp_queue
-    """
-    
-    
     def update_queue(self, queue, user_data):
         # Dočasně vyprázdni frontu
         temp_queue = Queue()
