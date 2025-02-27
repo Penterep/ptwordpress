@@ -83,7 +83,6 @@ class UserEnumeration:
             max_slug_len = (max(len(user["slug"]) for user in users) + 2) or 40
             max_name_len = (max(len(user["name"]) for user in users) + 2)
 
-            input((max_id_len, max_name_len, max_slug_len))
 
             ptprinthelper.ptprint(f"ID{' '*(max_id_len-2)}LOGIN{' '*(max_slug_len-5)}NAME", "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True, colortext="TITLE")
             #ptprinthelper.ptprint("-" * (max_id_len + max_name_len + max_slug_len + 6), "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True)
