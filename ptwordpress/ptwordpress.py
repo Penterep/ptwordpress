@@ -74,26 +74,30 @@ class PtWordpress:
     def parse_google_identifiers(self, response):
         ptprinthelper.ptprint(f"Google identifiers:", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
 
-        regulars = [
-            r"(GTM-[A-Z0-9]{6,9})",
-            r"(UA-\d{4,10}-\d+)",
-            r"(G-[A-Z0-9]{8,12})",
-            r"(AW-\d{9,12})",
-            r"(DC-\d{6,10})",
-            r"(ca-pub-\d{16})",
-            r"(ca-ads-\d{16})",
-            r"AIza[0-9A-z_\-\\]{35}",
-        ]
+        regulars = {
+            "Google Tag Manager ID": r"(GTM-[A-Z0-9]{6,9})",
+            "Google Analytics Universal ID": r"(UA-\d{4,10}-\d+)",
+            "Google Analytics 4": r"(G-[A-Z0-9]{8,12})",
+            "Google Ads Conversion ID": r"(AW-\d{9,12})",
+            "Google Campaign Manager ID": r"(DC-\d{6,10})",
+            "Google AdSense Publisher ID" : r"(ca-pub-\d{16})|(ca-ads-\d{16})",
+            "Google API Keys": r"AIza[0-9A-z_\-\\]{35}",
+        }
 
-        # Kombinování všech regulárních výrazů do jednoho pro použití v re.findall
-        combined_regex = '|'.join(regulars)
-        # Hledání všech shod v response.text
-        identifiers = re.findall(combined_regex, response.text)
-        identifiers = [identifier[0] for identifier in identifiers if identifier[0]]  # Pouze nenulové hodnoty
-        if identifiers:
-            ptprinthelper.ptprint('\n    '.join(identifiers), "TEXT", condition=not self.args.json, indent=4)
+        found_identifiers = {}
+        for key, regex in regulars.items():
+            matches = re.findall(regex, response.text)
+            matches = [m[0] if isinstance(m, tuple) else m for m in matches]
+            matches = sorted(set(matches))
+            if matches:
+                found_identifiers[key] = matches
+
+        if found_identifiers:
+            for category, values in found_identifiers.items():
+                ptprinthelper.ptprint(f"{category}:", "TEXT", condition=not self.args.json, indent=4)
+                ptprinthelper.ptprint("\n        ".join(values), "TEXT", condition=not self.args.json, indent=8)
         else:
-            ptprint(f"No identifiers found", "OK", condition=not self.args.json, indent=4)
+            ptprinthelper.ptprint("No identifiers found", "OK", condition=not self.args.json, indent=4)
 
 
     def run(self, args) -> None:
@@ -109,7 +113,7 @@ class PtWordpress:
         self.UserEnumerator: object      = UserEnumeration(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
         self.email_scraper               = get_emails_instance(args=self.args)
 
-        #self.SourceFinder.discover_backups()
+        #self.UserEnumerator.run()
 
         self.print_meta_tags(response=self.base_response)
         self.parse_site_info_from_rest(rest_response=self.rest_response)
@@ -129,7 +133,6 @@ class PtWordpress:
         self.SourceFinder.discover_admin_login_page()
         self.SourceFinder.discover_config_files()
         self.SourceFinder.check_directory_listing(url_list=[self.BASE_URL + path for path in ["/assets", "/wp-content", "/wp-content/uploads", "/wp-content/plugins", "/wp-content/themes", "/wp-includes", "/wp-includes/js", ]])
-        self.email_scraper.print_result()
 
         self.SourceFinder.discover_logs()
         self.SourceFinder.discover_backups()
@@ -142,6 +145,7 @@ class PtWordpress:
 
         #if  self.rest_response:
         self.UserEnumerator.run()
+        self.email_scraper.print_result()
 
 
         self.SourceFinder.print_media() # Scrape all uploaded public media
@@ -703,7 +707,7 @@ def get_help():
         {"options": [
             ["-u",  "--url",                    "<url>",                "Connect to URL"],
             ["-rm",  "--read-me",               "",                     "Enable readme dictionary attacks"],
-            ["-o",  "--output",                "<file>",                "Save emails, users, logins and media urls"],
+            ["-o",  "--output",                "<file>",                "Save emails, users, logins and media urls to files"],
             ["-wpsk", "--wpscan-key",           "<api-key>",            "Set WPScan API key (https://wpscan.com)"],
             ["-T",  "--timeout",                "",                     "Set Timeout"],
             ["-p",  "--proxy",                  "<proxy>",              "Set Proxy"],
