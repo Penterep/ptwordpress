@@ -112,8 +112,8 @@ class PtWordpress:
         self.UserEnumerator: object      = UserEnumeration(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
         self.email_scraper               = get_emails_instance(args=self.args)
 
-        self.UserEnumerator.run()
-        input(".")
+        #self.UserEnumerator.run()
+        #input(".")
 
         self.print_meta_tags(response=self.base_response)
         self.parse_site_info_from_rest(rest_response=self.rest_response)
