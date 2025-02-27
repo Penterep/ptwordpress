@@ -51,7 +51,7 @@ from modules.dual_output import DualOutput
 import defusedxml.ElementTree as ET
 
 from modules.plugins.emails import Emails, get_emails_instance
-
+from modules.plugins.media_download import MediaDownloader
 from bs4 import BeautifulSoup, Comment
 
 
@@ -69,7 +69,6 @@ class PtWordpress:
         #self.head_method_allowed: bool  = None
         self.wp_version: str             = None
         self.routes_and_status_codes     = []
-
 
     def parse_google_identifiers(self, response):
         ptprinthelper.ptprint(f"Google identifiers:", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
@@ -113,7 +112,8 @@ class PtWordpress:
         self.UserEnumerator: object      = UserEnumeration(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
         self.email_scraper               = get_emails_instance(args=self.args)
 
-        #self.UserEnumerator.run()
+        self.UserEnumerator.run()
+        input(".")
 
         self.print_meta_tags(response=self.base_response)
         self.parse_site_info_from_rest(rest_response=self.rest_response)
@@ -127,7 +127,6 @@ class PtWordpress:
         self.process_sitemap(robots_txt_response=self.robots_txt_response)
 
         #self.parse_authentication_from_rest(rest_response=self.rest_response)
-        self.parse_namespaces_from_rest(rest_response=self.rest_response)
 
         self.SourceFinder.discover_xml_rpc()
         self.SourceFinder.discover_admin_login_page()
@@ -142,13 +141,17 @@ class PtWordpress:
             self.check_readme_txt(url=self.BASE_URL)
 
         self.wpscan_api.run(wp_version=self.wp_version, plugins=self.run_plugin_discovery(response=self.base_response), themes=self.run_theme_discovery(response=self.base_response))
+        self.parse_namespaces_from_rest(rest_response=self.rest_response)
 
         #if  self.rest_response:
         self.UserEnumerator.run()
         self.email_scraper.print_result()
 
 
-        self.SourceFinder.print_media() # Scrape all uploaded public media
+        media_urls: list = self.SourceFinder.print_media() # Scrape all uploaded public media
+        if self.args.save_media:
+            MediaDownloader(args=self.args).save_media(media_urls)
+
 
         # TODO: Scan all routes, check for routes that are not auth protected (not 401)
         #APIRoutesWalker(self.args, self.ptjsonlib, self.rest_response).run()
@@ -253,7 +256,7 @@ class PtWordpress:
 
     def print_response_headers(self, response):
         """Print all response headers"""
-        ptprint(f"Response Headers:", "INFO", not self.args.json, colortext=True)
+        ptprint(f"Response headers:", "INFO", not self.args.json, colortext=True)
         for header_name, header_value in response.raw.headers.items():
             ptprint(f"{header_name}: {header_value}", "ADDITIONS", not self.args.json, colortext=True, indent=4)
 
@@ -276,7 +279,8 @@ class PtWordpress:
         if comments:
             ptprint(f"HTML comments:", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
             for comment in comments:
-                ptprint(comment.strip(), "TEXT", condition=not self.args.json, colortext=True, indent=4)
+                comment = comment.strip().replace(r"\n", r"\n    ")
+                ptprint(comment, "TEXT", condition=not self.args.json, colortext=True, indent=4)
         return comments
 
     def get_wp_version_from_rss_feed(self, response):
@@ -685,8 +689,9 @@ class PtWordpress:
 
     def handle_redirect(self, response, args):
         if not self.args.json:
-            if self._yes_no_prompt(f"[{response.status_code}] Returned response redirects to {response.headers.get('location', '?')}, follow?"):
-                ptprint("\n", condition=not self.args.json, end="")
+            if True: #self._yes_no_prompt(f"[{response.status_code}] Returned response redirects to {response.headers.get('location', '?')}, follow?"):
+                ptprint(f"[{response.status_code}] Returned response redirects to {response.headers.get('location', '?')}, following...", "INFO", not self.args.json, end="", flush=True, newline_above=True)
+                ptprint("\n", condition=not self.args.json, end="\n")
                 args.redirects = True
                 self.BASE_URL = response.headers.get("location")[:-1] if response.headers.get("location").endswith("/") else response.headers.get("location")
                 self.REST_URL = self.BASE_URL + "/wp-json"
@@ -707,16 +712,17 @@ def get_help():
         {"options": [
             ["-u",  "--url",                    "<url>",                "Connect to URL"],
             ["-rm",  "--read-me",               "",                     "Enable readme dictionary attacks"],
-            ["-o",  "--output",                "<file>",                "Save emails, users, logins and media urls to files"],
+            ["-o",  "--output",                 "<file>",               "Save emails, users, logins and media urls to files"],
             ["-wpsk", "--wpscan-key",           "<api-key>",            "Set WPScan API key (https://wpscan.com)"],
+            ["-sm",  "--save-media",            "<folder>",             "Save media to folder"],
             ["-T",  "--timeout",                "",                     "Set Timeout"],
             ["-p",  "--proxy",                  "<proxy>",              "Set Proxy"],
             ["-c",  "--cookie",                 "<cookie>",             "Set Cookie"],
             ["-a", "--user-agent",              "<agent>",              "Set User-Agent"],
             ["-ar", "--author-range",           "<author-range>",       "Set custom range for author enumeration (e.g. 1000-1300)"],
             ["-wu", "--wordlist-users",         "<user_wordlist>",      "Set Custom wordlist for user enumeration"],
-            #["-wu", "--wordlist-users",         "<plugin_wordlist>",    "Set Custom wordlist for plugin enumeration"],
-            #["-wu", "--wordlist-sources",       "<source_wordlist>",    "Set Custom wordlist for source enumeration"],
+            #["-wu", "--wordlist-users",         "<plugin_wordlist>",   "Set Custom wordlist for plugin enumeration"],
+            #["-wu", "--wordlist-sources",       "<source_wordlist>",   "Set Custom wordlist for source enumeration"],
             ["-H",  "--headers",                "<header:value>",       "Set Header(s)"],
             ["-r",  "--redirects",              "",                     "Follow redirects (default False)"],
             ["-C",  "--cache",                  "",                     "Cache HTTP communication"],
@@ -749,6 +755,7 @@ def parse_args():
     parser = argparse.ArgumentParser(add_help="False", description=f"{SCRIPTNAME} <options>")
     parser.add_argument("-u",  "--url",              type=str, required=True)
     parser.add_argument("-p",  "--proxy",            type=str)
+    parser.add_argument("-sm",  "--save-media",      type=str)
     parser.add_argument("-wu", "--wordlist-users",   type=str)
     parser.add_argument("-wpsk", "--wpscan-key",     type=str)
     parser.add_argument("-T",  "--timeout",          type=int, default=10)
@@ -760,7 +767,7 @@ def parse_args():
     parser.add_argument("-ir", "--id-range",         type=parse_range, default=(1, 10))
     parser.add_argument("-H",  "--headers",          type=ptmisclib.pairs, nargs="+")
     parser.add_argument("-r",  "--redirects",        action="store_true")
-    parser.add_argument("-rm",  "--read-me",        action="store_true")
+    parser.add_argument("-rm",  "--read-me",         action="store_true")
     parser.add_argument("-C",  "--cache",            action="store_true")
     parser.add_argument("-j",  "--json",             action="store_true")
     parser.add_argument("-v",  "--version",          action='version', version=f'{SCRIPTNAME} {__version__}')

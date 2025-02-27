@@ -1,7 +1,8 @@
+"""Yoast SEO scrapper"""
+
 from ptlibs import ptprinthelper
 
 class YoastScraper:
-    """Yoast SEO scrapper"""
 
     def __init__(self, args):
         self.result = {"publishers": set(), "twitters": set(), "sites": set()}
@@ -11,7 +12,6 @@ class YoastScraper:
         """Parse posts from wordpress posts endpoint (/wp-json/wp/v2/posts) and retrieve yoast related stuff."""
         for post in data:
             if post.get("yoast_head_json"):
-                #print(post)
                 post = post.get("yoast_head_json")
                 self.result["publishers"].add(post.get("article_publisher", ""))
 
@@ -26,10 +26,10 @@ class YoastScraper:
             return
 
         for key in self.result:
-            if isinstance(self.result[key], set):  # Pokud je hodnota set
+            if isinstance(self.result[key], set):
                 self.result[key] = {val for val in self.result[key] if val != ""}
 
-        ptprinthelper.ptprint("Yoast interesting metatags:", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
+        ptprinthelper.ptprint("Yoast interesting information:", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
         for key, value in self.result.items():
             if not value:
                 continue
@@ -48,12 +48,12 @@ class YoastScraper:
                     elif isinstance(value, (dict, list)):
                         result = self.find_key_in_json(value, target_key)
                         if result:  # Pokračujeme pouze pokud výsledek není prázdný
-                            return result  
+                            return result
 
             elif isinstance(data, list):
                 for item in data:
                     result = self.find_key_in_json(item, target_key)
-                    if result:  
+                    if result:
                         return result
 
             return None  # Pokud nic nenajde, vrátí None místo []

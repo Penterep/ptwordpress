@@ -30,7 +30,6 @@ class SourceEnumeration:
                 else:
                     return None  # Pokud není 200 nebo je odpověď prázdná
             except Exception as e:
-                #print(e)
                 return None
 
         ptprinthelper.ptprint(f"Media discovery:", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
@@ -74,6 +73,8 @@ class SourceEnumeration:
             #    filename = f"{splitted[0]}-media.{splitted[-1]}"
             write_to_file(filename, '\n'.join(source_urls))
 
+        return source_urls
+
     def discover_xml_rpc(self):
         """Discover XML-RPC API"""
         xml_data = '''<?xml version="1.0" encoding="UTF-8"?>
@@ -81,7 +82,7 @@ class SourceEnumeration:
           <methodName>system.listMethods</methodName>
           <params></params>
         </methodCall>'''
-        ptprinthelper.ptprint(f"{self.BASE_URL}/xmlrpc.php", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        ptprinthelper.ptprint(f"Testing for xmlrpc.php availability:", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         response = requests.post(f"{self.BASE_URL}/xmlrpc.php", proxies=self.args.proxy, verify=False, data=xml_data, allow_redirects=False)
         ptprinthelper.ptprint(f"[{response.status_code}] {response.url}", "TEXT", condition=not self.args.json, indent=4)
         ptprinthelper.ptprint(f"Script xmlrpc.php is {'available' if response.status_code == 200 else 'not available'}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)

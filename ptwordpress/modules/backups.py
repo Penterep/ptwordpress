@@ -54,7 +54,7 @@ class BackupsFinder:
         """Funkce pro ověření, zda soubor/adresář existuje"""
         try:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False) if not self.head_method_allowed else requests.head(url, proxies=self.args.proxy, verify=False)
+            response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False) if not self.head_method_allowed else requests.head(url, proxies=self.args.proxy, verify=False, allow_redirects=False)
             if response.status_code == 200:
                 ptprinthelper.ptprint(f"[{response.status_code}] {http.client.responses.get(response.status_code, '')} {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
                 self.vulnerable_urls.put(url)

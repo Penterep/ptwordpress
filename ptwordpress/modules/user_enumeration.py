@@ -55,13 +55,9 @@ class UserEnumeration:
         ptprinthelper.ptprint("Discovered logins:", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
         if not users:
             ptprinthelper.ptprint(f"No logins discovered", "OK", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+            return
 
-        # Získání unikátních slugs (použijeme set pro odstranění duplicit)
-        unique_slugs = set(user["slug"] for user in users if user["slug"])
-        unique_slugs = sorted(unique_slugs)
-
-        if not unique_slugs:
-            ptprinthelper.ptprint("No logins enumerated", "OK", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+        unique_slugs = sorted(set(user["slug"] for user in users if user["slug"]))
 
         for slug in unique_slugs:
             ptprinthelper.ptprint(slug, "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
@@ -83,11 +79,11 @@ class UserEnumeration:
 
         # Krok 1: Najít maximální délku pro každý sloupec
         try:
-            max_id_len   = max(max(len(str(user["id"])) for user in users), 2) + 2
-            max_name_len = max(len(user["name"]) for user in users) + 2
-            max_slug_len = max(len(user["slug"]) for user in users) + 2
+            max_id_len   = (max(max(len(str(user["id"])) for user in users), 2) + 2) or 5
+            max_slug_len = (max(len(user["slug"]) for user in users) + 2) or 40
+            max_name_len = (max(len(user["name"]) for user in users) + 2)
 
-            #input((max_id_len, max_name_len, max_slug_len))
+            input((max_id_len, max_name_len, max_slug_len))
 
             ptprinthelper.ptprint(f"ID{' '*(max_id_len-2)}LOGIN{' '*(max_slug_len-5)}NAME", "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True, colortext="TITLE")
             #ptprinthelper.ptprint("-" * (max_id_len + max_name_len + max_slug_len + 6), "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True)
@@ -213,7 +209,7 @@ class UserEnumeration:
                         # Když dostaneme None, znamená to problém s odpovědí, přerušujeme.
                         return
         if not results:
-            ptprinthelper.ptprint(f"No users enumerated", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
+            ptprinthelper.ptprint(f"No users discovered", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
 
     def _enumerate_users_by_author_id(self) -> list:
         """Enumerate users via /?author=<id> query."""
@@ -265,7 +261,7 @@ class UserEnumeration:
                     unique_id = result.get("id")
                     self.FOUND_AUTHOR_IDS.add(result.get("id"))
             else:
-                ptprinthelper.ptprint(f"No users enumerated", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
+                ptprinthelper.ptprint(f"No users discovered", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
             #ptprinthelper.ptprint(" ", "TEXT", condition=not self.args.json, clear_to_eol=True)
 
     def _enumerate_users_by_author_name(self) -> list:
@@ -293,7 +289,7 @@ class UserEnumeration:
             if results:
                 self.vulnerable_endpoints.add(f"{self.BASE_URL}/author/<author>/")
             else:
-                ptprinthelper.ptprint(f"No users enumerated", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
+                ptprinthelper.ptprint(f"No users discovered", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
             ptprinthelper.ptprint(" ", "TEXT", condition=not self.args.json, clear_to_eol=True)
 
     def _enumerate_users_via_comments(self):
