@@ -51,6 +51,7 @@ ptlibs
 defusedxml
 bs4
 lxml
+tqdm
 ```
 
 ## License
