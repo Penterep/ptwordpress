@@ -17,6 +17,7 @@ class BackupsFinder:
         self.base_domain = self.extract_result.domain + "." + self.extract_result.suffix
         self.domain      = ((self.extract_result.subdomain + ".") if self.extract_result.subdomain else "") + self.extract_result.domain + "." + self.extract_result.suffix
         self.scheme      = self.extract_result.scheme
+        self.full_domain = f"{self.scheme}://{self.domain}"
 
     def run_backup_discovery(self) -> list:
         """Main function, returns set of vulnerable urls."""
@@ -47,6 +48,30 @@ class BackupsFinder:
         self.vulnerable_urls = set(list(self.vulnerable_urls.queue))
         if not self.vulnerable_urls:
             ptprinthelper.ptprint(f"No log files discovered", "OK", condition=not self.args.json, indent=4, flush=True, clear_to_eol=True)
+        else:
+            ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, flush=True, clear_to_eol=True, end="")
+
+    def discover_database_management_interface(self):
+        files = [
+            "/adminer/adminer.php",
+            "/adminer.php",
+            "/admin/adminer.php",
+            "/wp-admin/adminer.php",
+            "/phpmyadmin/",
+            "/admin/phpmyadmin/",
+            "/wp-admin/phpmyadmin/",
+            "/database/",
+            "/cpanel/",]
+
+        self.vulnerable_urls = Queue()
+        domain = ((self.extract_result.subdomain + ".") if self.extract_result.subdomain else "") + self.extract_result.domain + "." + self.extract_result.suffix
+        ptprinthelper.ptprint(f"Database management interface", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(self.check_url, self.scheme + "://" + domain + file_) for file_ in files]
+
+        self.vulnerable_urls = set(list(self.vulnerable_urls.queue))
+        if not self.vulnerable_urls:
+            ptprinthelper.ptprint(f"No database management interface discovered", "OK", condition=not self.args.json, indent=4, flush=True, clear_to_eol=True)
         else:
             ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, flush=True, clear_to_eol=True, end="")
 
@@ -116,3 +141,30 @@ class BackupsFinder:
                     futures.append(executor.submit(self.check_url, url))
                 for future in as_completed(futures):
                     future.result()
+
+    def check_dangerous_scripts(self):
+        """"""
+        ptprint(f"Check dangerous scripts", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
+        paths = [
+            "/wp-mail.php",
+            "/wp-cron.php",
+            "/wp-signup.php",
+            "/wp-activate.php",
+            "/wp-admin/maint/repair.php",
+        ]
+        urls = [self.scheme + "://"+ self.domain + path for path in paths]
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            result = executor.map((self.check_url, urls))
+
+    def check_url(self, url):
+        """Funkce pro ověření, zda soubor/adresář existuje"""
+        try:
+            ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
+            response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False) if not self.head_method_allowed else requests.head(url, proxies=self.args.proxy, verify=False, allow_redirects=False)
+            if response.status_code == 200:
+                ptprinthelper.ptprint(f"[{response.status_code}] {http.client.responses.get(response.status_code, '')} {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+                self.vulnerable_urls.put(url)
+                return True
+        except requests.exceptions.RequestException as e:
+            pass
+        return False

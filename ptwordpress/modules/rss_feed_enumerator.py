@@ -35,7 +35,7 @@ class RssFeedEnumerator:
 
     def run(self):
         """Main function for user enumeration via RSS feed"""
-        ptprinthelper.ptprint(f"User enumeration via RSS feed:", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        ptprinthelper.ptprint(f"User enumeration via RSS feed", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
 
         for path in ["/feed/", "/feed/rss", "/?feed=rss&author=1", "/feed/rss?author=1", "/feed/rss?paged=1"]:
             url = self.BASE_URL + path  # example.com/feed/rss

@@ -12,7 +12,7 @@ class WPScanAPI:
         self.headers.update({"Authorization": f"Token token={args.wpscan_key}"})
 
     def run(self, wp_version: str, plugins: list, themes: list):
-        ptprint(f"WPScan:", "INFO", not self.args.json, colortext=True, newline_above=True)
+        ptprint(f"WPScan:", "INFO", not self.args.json, colortext=True, newline_above=False)
         if not self.API_KEY:
             ptprint(f"API key is required for WPScan information (--wpscan-key)", "WARNING", condition=not self.args.json, indent=4)
             return

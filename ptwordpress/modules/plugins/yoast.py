@@ -1,11 +1,12 @@
 """Yoast SEO scrapper"""
 
 from ptlibs import ptprinthelper
+import re
 
 class YoastScraper:
 
     def __init__(self, args):
-        self.result = {"publishers": set(), "twitters": set(), "sites": set()}
+        self.result = {"publishers": set(), "twitters": set(), "sites": set(), "users": set()}
         self.args = args
 
     def parse_posts(self, data):
@@ -21,6 +22,11 @@ class YoastScraper:
                 for site in self.find_key_in_json(post, "sameAs"):
                     self.result["sites"].add(site)
 
+            elif post.get("yoast_head"):
+                names = re.findall(r"[\"']name[\"']:[\"'](\w+)[\"']", post.get("yoast_head", ""))
+                for name in names:
+                    self.result["users"].add(names)
+
     def print_result(self):
         if all(not v for v in self.result.values()):
             return
@@ -29,7 +35,7 @@ class YoastScraper:
             if isinstance(self.result[key], set):
                 self.result[key] = {val for val in self.result[key] if val != ""}
 
-        ptprinthelper.ptprint("Yoast interesting information:", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
+        ptprinthelper.ptprint("Yoast interesting information", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
         for key, value in self.result.items():
             if not value:
                 continue

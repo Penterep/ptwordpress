@@ -1,6 +1,6 @@
 def write_to_file(filename, content):
     try:
         with open(filename, 'a') as file:
-            file.write(content + '\n')  # Přidá obsah a nový řádek
+            file.write(content + '\n')
     except Exception as e:
-        print(f"Došlo k chybě při zapisování do souboru: {e}")
+        print(f"Error writing to file: {e}")

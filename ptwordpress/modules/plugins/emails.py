@@ -30,7 +30,7 @@ class Emails:
                 self.emails.add(email)
 
     def print_result(self):
-        ptprinthelper.ptprint("Email discovery (from posts):", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
+        ptprinthelper.ptprint("Email discovery (from posts)", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
         for email in sorted(list(self.emails)):
             ptprinthelper.ptprint(email, "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
 
@@ -39,7 +39,7 @@ class Emails:
 
         if self.args.output:
             filename = self.args.output + "-emails.txt"
-            write_to_file(filename, '\n'.join(source_urls))
+            write_to_file(filename, '\n'.join(sorted(self.emails)))
 
 def get_emails_instance(args):
     return Emails(args)
