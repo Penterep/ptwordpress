@@ -16,7 +16,6 @@ class Hashes:
 
     def get_hashes_from_favicon(self, response = None):
         favicon_data = response.content
-        # Vypočítat hashe
         hashes: dict = self.calculate_hashes(favicon_data)
 
         ptprinthelper.ptprint("Favicon.ico hashes (etag)", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
@@ -27,7 +26,6 @@ class Hashes:
         hashes = {
             'MD5': hashlib.md5(data).hexdigest(),
             'SHA1': hashlib.sha1(data).hexdigest(),
-            'SHA2': hashlib.sha256(data).hexdigest(),
             'SHA256': hashlib.sha256(data).hexdigest(),
         }
         return hashes

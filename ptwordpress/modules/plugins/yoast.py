@@ -28,6 +28,7 @@ class YoastScraper:
                     self.result["users"].add(names)
 
     def print_result(self):
+        """Print results"""
         if all(not v for v in self.result.values()):
             return
 
@@ -36,6 +37,12 @@ class YoastScraper:
                 self.result[key] = {val for val in self.result[key] if val != ""}
 
         ptprinthelper.ptprint("Yoast interesting information", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
+
+        # If not result
+        if all(not v for v in self.result.values()):
+            ptprinthelper.ptprint("No information discovered", "OK", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+            return
+
         for key, value in self.result.items():
             if not value:
                 continue
@@ -50,10 +57,10 @@ class YoastScraper:
             if isinstance(data, dict):
                 for key, value in data.items():
                     if key == target_key:
-                        return value  # Nalezený klíč vrátí hodnotu
+                        return value 
                     elif isinstance(value, (dict, list)):
                         result = self.find_key_in_json(value, target_key)
-                        if result:  # Pokračujeme pouze pokud výsledek není prázdný
+                        if result:
                             return result
 
             elif isinstance(data, list):
@@ -62,7 +69,7 @@ class YoastScraper:
                     if result:
                         return result
 
-            return None  # Pokud nic nenajde, vrátí None místo []
+            return None
         except Exception as e:
             print(f"Chyba: {e}")
             return None

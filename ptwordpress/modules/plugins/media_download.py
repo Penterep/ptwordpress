@@ -24,5 +24,5 @@ class MediaDownloader:
     def save_media(self, links: list):
         ptprinthelper.ptprint("Saving media", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
 
-        with ThreadPoolExecutor(max_workers=10) as pool:
+        with ThreadPoolExecutor(max_workers=self.args.threads) as pool:
             list(tqdm(pool.map(self._download_file, links), total=len(links), desc="Saving media", unit="B", unit_scale=True))

@@ -44,7 +44,7 @@ class RssFeedEnumerator:
             try:
                 response = requests.get(url=url, proxies=self.proxy, verify=False, allow_redirects=False)
                 response_hash = hashlib.md5(response.content).hexdigest()
-                ptprinthelper.ptprint(f"[{response.status_code} {http.client.responses.get(response.status_code, '')}] {response.headers.get('location', '')} {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+                ptprinthelper.ptprint(f"[{response.status_code} {response.headers.get('location', '')} {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
 
                 # If the response is 200, add the hash to the set and send more requests
                 if response.status_code == 200:
@@ -70,7 +70,7 @@ class RssFeedEnumerator:
 
                 # Handling redirection if it occurs
                 elif response.is_redirect:
-                    input((url, "url je redirekt")) 
+                    #input((url, "url je redirekt")) 
                     self.handle_redirect(response, path)
 
             except requests.RequestException as e:

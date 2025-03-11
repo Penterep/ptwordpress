@@ -1,10 +1,11 @@
 import requests
 import http.client
-from ptlibs import ptprinthelper
-from ptlibs.ptprinthelper import ptprint
 from queue import Queue
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
+
+from ptlibs import ptprinthelper
+from ptlibs.ptprinthelper import ptprint
 import ptlibs.tldparser as tldparser
 
 from modules.backups import BackupsFinder
@@ -34,7 +35,6 @@ class SourceEnumeration:
             return str(user_id)
 
         def fetch_page(page):
-            """Stáhne jednu stránku z API"""
             try:
                 scrapped_media = []
                 url = f"{self.BASE_URL}/wp-json/wp/v2/media?page={page}&per_page=100"
@@ -68,7 +68,7 @@ class SourceEnumeration:
         #article_result = set()
 
         # Try get a parse Page 2-99
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
             page_range = range(2, 100)  # Počínaje stránkou 2 až do 99
             for i in range(0, len(page_range), 10):  # Posíláme po 10 stránkách najednou
                 futures = {executor.submit(fetch_page, page_range[j]): page_range[j] for j in range(i, min(i + 10, len(page_range)))}
@@ -90,8 +90,8 @@ class SourceEnumeration:
         #for source in source_urls:
         #    ptprinthelper.ptprint(source, "ADDITIONS", colortext=True, condition=not self.args.json, indent=4)
         for media in result:
-            ptprinthelper.ptprint(f'{media.get("title")}, {get_user_slug_or_name(media.get("author_id"))}, {media.get("uploaded")}, {media.get("modified")}', "ADDITIONS", colortext=False, condition=not self.args.json, indent=4)
-            ptprinthelper.ptprint(media.get("source_url"), "ADDITIONS", colortext=True, condition=not self.args.json, indent=4)
+            ptprinthelper.ptprint(f'{media.get("title")}, {get_user_slug_or_name(media.get("author_id"))}, {media.get("uploaded")}, {media.get("modified")}', "ADDITIONS", colortext=False, condition=not self.args.json, indent=4, clear_to_eol=True)
+            ptprinthelper.ptprint(media.get("source_url"), "ADDITIONS", colortext=True, condition=not self.args.json, indent=4, clear_to_eol=True)
 
         if self.args.output:
             filename = self.args.output + "-media.txt"
@@ -179,8 +179,8 @@ class SourceEnumeration:
         vuln_urls = Queue()
 
         def check_url(url):
-            """Funkce pro ověření jednoho URL"""
-            if not url.endswith("/"): url += "/"
+            if not url.endswith("/"):
+                url += "/"
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=print_text and not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
             try:
                 response = requests.get(url, timeout=5, proxies=self.args.proxy, verify=False)
@@ -192,7 +192,7 @@ class SourceEnumeration:
             except requests.exceptions.RequestException as e:
                 ptprint(f"Error retrieving response from {url}. Reason: {e}", "ERROR", condition=not self.args.json, indent=4)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
             executor.map(check_url, url_list)
 
         return list(vuln_urls.queue)
@@ -214,24 +214,22 @@ class SourceEnumeration:
         #ptprint(f"Readme discovery: {url}", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True, clear_to_eol=True)
 
         result = [self.check_url(url=f"{self.BASE_URL}/readme.html")]
-
         urls = []
         for t in themes:
             urls.append(f"{self.BASE_URL}/wp-content/themes/{t}/readme.txt")
         for p in plugins:
             urls.append(f"{self.BASE_URL}/wp-content/plugins/{p}/readme.txt")
 
-        #return
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
             result.extend(list(executor.map(self.check_url, urls)))
-        #input(result)
 
         if all(r is None for r in result):
-            ptprinthelper.ptprint(f"No readme files enumerated", "OK", condition=not self.args.json, end="\n", flush=True, colortext=True, indent=4, clear_to_eol=True)
+            ptprinthelper.ptprint(f"No readme files discovered", "OK", condition=not self.args.json, end="\n", flush=True, colortext=False, indent=4, clear_to_eol=True)
         else:
-            ptprinthelper.ptprint(f" ", "", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+            ptprinthelper.ptprint(f"yy ", "TEXT", condition=not self.args.json, end="\n", flush=True, indent=0, clear_to_eol=True)
 
         return result
+
 
     def check_dangerous_scripts(self):
         """"""
@@ -243,24 +241,29 @@ class SourceEnumeration:
             "/wp-activate.php",
             "/wp-admin/maint/repair.php",
         ]
-        urls = [self.scheme + "://"+ self.domain + path for path in paths]
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            result = list(executor.map(self.check_url, urls, [True] * len(urls)))
-
-        #if all(r is None for r in result):
-        #    ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\n", flush=True, colortext=True, indent=4, clear_to_eol=True)
+        urls = [self.scheme + "://" + self.domain + path for path in paths]
+        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
+            result = executor.map(self.check_url, urls, [True] * len(urls))
 
     def check_url(self, url, show_responses=False):
         """Funkce pro ověření, zda soubor/adresář existuje"""
         try:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False) if not self.head_method_allowed else requests.head(url, proxies=self.args.proxy, verify=False, allow_redirects=False)
+            if ("/wp-admin/maint/repair.php" in url):
+                response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False)
+            else:
+                response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False) if not self.head_method_allowed else requests.head(url, proxies=self.args.proxy, verify=False, allow_redirects=False)
+
+            if ("/wp-admin/maint/repair.php" in url) and (response.status_code == 200) and ("define('WP_ALLOW_REPAIR', true);".lower() in response.text.lower()):
+                ptprinthelper.ptprint(f"[{response.status_code}] {url}", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+                return
+
             if response.status_code == 200:
-                ptprinthelper.ptprint(f"[{response.status_code} {http.client.responses.get(response.status_code, '')}] {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+                ptprinthelper.ptprint(f"[{response.status_code}] {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
                 return url
             else:
                 if show_responses:
-                    ptprinthelper.ptprint(f"[{response.status_code} {http.client.responses.get(response.status_code, '')}] {url}", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+                    ptprinthelper.ptprint(f"[{response.status_code}] {url}", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
 
         except requests.exceptions.RequestException as e:
             return
@@ -271,7 +274,7 @@ class SourceEnumeration:
         self.check_url(f"{self.full_domain}/wp-json/wp-site-health/v1/tests/background-updates", show_responses=True)
 
     def discover_phpinfo(self):
-        ptprint(f"phpinfo()", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
+        ptprint(f"Information pages (phpinfo)", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
         paths = [
             "phpinfo.php",
             "phpinfo.php3",
@@ -279,11 +282,11 @@ class SourceEnumeration:
             "info.php3",
         ]
         urls = [self.scheme + "://"+ self.domain + "/" + path for path in paths]
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
             result = list(executor.map(self.check_url, urls, [False] * len(urls)))
 
         if all(r is None for r in result):
-            ptprinthelper.ptprint(f"No files enumerated", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+            ptprinthelper.ptprint(f"No information files discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
         else:
             ptprinthelper.ptprint(f" ", "", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
 
@@ -299,10 +302,10 @@ class SourceEnumeration:
             "/statistics",
         ]
         urls = [self.scheme + "://"+ self.domain + "/" + path for path in paths]
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
             result = list(executor.map(self.check_url, urls, [False] * len(urls)))
 
         if all(r is None for r in result):
-            ptprinthelper.ptprint(f"No statistics discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+            ptprinthelper.ptprint(f"No statistics pages discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
         else:
             ptprinthelper.ptprint(f" ", "", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
