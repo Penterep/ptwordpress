@@ -1,27 +1,29 @@
+import os
+import re
 import requests
 import http.client
+from itertools import chain
 from queue import Queue
 import concurrent.futures
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ptlibs import ptprinthelper
 from ptlibs.ptprinthelper import ptprint
 import ptlibs.tldparser as tldparser
 
-from modules.backups import BackupsFinder
 from modules.write_to_file import write_to_file
 
 class SourceEnumeration:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed: bool):
+        self.args = args
         self.BASE_URL = base_url
         self.REST_URL = base_url + "/wp-json"
-        self.args = args
         self.ptjsonlib = ptjsonlib
         self.head_method_allowed = head_method_allowed
-
         self.extract_result = tldparser.extract(base_url)
-        #self.base_domain = self.extract_result.domain + "." + self.extract_result.suffix
         self.domain      = ((self.extract_result.subdomain + ".") if self.extract_result.subdomain else "") + self.extract_result.domain + "." + self.extract_result.suffix
+        self.domain2th   = self.extract_result.domain
+        self.tld         = self.extract_result.suffix
         self.scheme      = self.extract_result.scheme
         self.full_domain = f"{self.scheme}://{self.domain}"
 
@@ -36,101 +38,7 @@ class SourceEnumeration:
         response = requests.post(f"{self.BASE_URL}/xmlrpc.php", proxies=self.args.proxy, verify=False, data=xml_data, allow_redirects=False, headers=self.args.headers)
         ptprinthelper.ptprint(f"[{response.status_code}] {response.url}", "TEXT", condition=not self.args.json, indent=4)
         ptprinthelper.ptprint(f"Script xmlrpc.php is {'available' if response.status_code == 200 else 'not available'}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
-
-        #ptprinthelper.ptprint(f"[{response.status_code}] {http.client.responses.get(response.status_code, 'Unknown status code')} {'Available' if response.status_code == 200 else ''}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
-
-    def discover_repositories(self):
-        """Discover repositories by accessing ./git/HEAD, /.svn/entries files."""
-        ptprinthelper.ptprint(f"Repository discovery", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-        is_vuln = False
-        for path in ["/.git/HEAD", "/wp-content/.git/HEAD", "/wp-content/uploads/.git/HEAD", "/.svn/entries", "/wp-content/.svn/entries", "/wp-content/uploads/.svn/entries" ]:
-            url = self.BASE_URL + path
-            ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = requests.get(url=url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
-            try:
-                if response.status_code == 200:
-                    ptprinthelper.ptprint(f"Repository discovered: {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-                    is_vuln = True
-            except requests.RequestException as e:
-                pass
-        ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, end="\r", flush=True, indent=0, clear_to_eol=True)
-        if not is_vuln:
-            ptprinthelper.ptprint(f"No repository discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-
-    def discover_config_files(self):
-        """Discover .htaccess, .htpasswd config files"""
-        ptprinthelper.ptprint(f"Check accesss to config files (.htaccess, .htpasswd)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-        is_vuln = False
-        for path in ["/.htaccess", "/.htpasswd"]:
-            url = self.BASE_URL + path
-            ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = requests.get(url=url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
-            try:
-                if response.status_code == 200:
-                    ptprinthelper.ptprint(f"Allowed access to config file: {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-                    is_vuln = True
-            except requests.RequestException as e:
-                pass
-        if not is_vuln:
-            ptprinthelper.ptprint(f"Access to config files not allowed", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-
-    def discover_admin_login_page(self):
-        """Discover admin page"""
-        ptprint(f"Admin login page", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
-        result = [] # status code, url, redirect
-        for path in  ["/wp-admin/", "/admin", "/wp-login.php"]:
-            full_url = self.BASE_URL + path
-            try:
-                response = requests.get(full_url, allow_redirects=False, proxies=self.args.proxy, verify=False, headers=self.args.headers)
-                # {http.client.responses.get(response.status_code, 'Unknown status code')}
-                result.append([f"{response.status_code}" , f"{full_url}", response.headers.get("location", "")])
-            except requests.exceptions.RequestException:
-                result.append([f"[error]", f"{full_url}"])
-
-        is_available = False # True if status code 200 anywhere
-        # Print results
-        max_url_length = max(len(url_from) for _, url_from, _ in result)
-        for code, url_from, url_to in result:
-            ptprint(f"[{code}] {url_from:<{max_url_length}} {'→ ' + url_to if url_to else ''}", "TEXT", condition=not self.args.json, indent=4)
-            if str(code).startswith("2"):
-                is_available = True
-
-        ptprint("Admin page is available" if is_available else "Admin page is not available", "VULN" if is_available else "OK", condition=not self.args.json, indent=4)
-
-    def check_directory_listing(self, url_list: list, print_text: bool = True) -> list:
-        """Checks for directory listing, returns list of vulnerable URLs."""
-        ptprint(f"Directory listing", "TITLE", condition=print_text and not self.args.json, newline_above=True, indent=0, colortext=True)
-        vuln_urls = Queue()
-
-        def check_url(url):
-            if not url.endswith("/"):
-                url += "/"
-            ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=print_text and not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            try:
-                response = requests.get(url, timeout=5, proxies=self.args.proxy, verify=False, headers=self.args.headers)
-                if response.status_code == 200 and "index of /" in response.text.lower():
-                    vuln_urls.put(url)  # ✅ Thread-safe zápis
-                    ptprinthelper.ptprint(f"{url}", "VULN", condition=print_text and not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-                else:
-                    ptprinthelper.ptprint(f"{url}", "OK", condition=print_text and not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-            except requests.exceptions.RequestException as e:
-                ptprint(f"Error retrieving response from {url}. Reason: {e}", "ERROR", condition=not self.args.json, indent=4)
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            executor.map(check_url, url_list)
-
-        return list(vuln_urls.queue)
-
-    def discover_logs(self):
-        return BackupsFinder(base_url=self.BASE_URL, args=self.args, ptjsonlib=self.ptjsonlib, head_method_allowed=self.head_method_allowed).run_log_discovery()
-
-    def discover_backups(self):
-        """Run BackupFinder moduel to discover backups on target server"""
-        return BackupsFinder(base_url=self.BASE_URL, args=self.args, ptjsonlib=self.ptjsonlib, head_method_allowed=self.head_method_allowed).run_backup_discovery()
-
-    def discover_database_management_interface(self):
-        return BackupsFinder(base_url=self.BASE_URL, args=self.args, ptjsonlib=self.ptjsonlib, head_method_allowed=self.head_method_allowed).discover_database_management_interface()
-
+    
 
     def check_readme_files(self, themes, plugins):
         """Check for basic readme files at site root and for each theme and plugin."""
@@ -149,44 +57,69 @@ class SourceEnumeration:
         ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, end="\r")
         result = [result for result in result if result is not None]
 
-        #if result:
-        #    ptprinthelper.ptprint(f"KKKKKK", "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True)
         if all(r is None for r in result):
-            if not self.args.read_me: # Print only if no read_me test specified.
+            if not self.args.read_me:
                 ptprinthelper.ptprint(f"No readme files discovered", "OK", condition=not self.args.json, end="\n", flush=True, colortext=False, indent=4, clear_to_eol=True)
-        #else:
-        #    ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, end="\n", flush=True, indent=0, clear_to_eol=True)
 
         return [result for result in result if result is not None]
+    
 
-    def check_dangerous_scripts(self):
-        """"""
-        ptprint(f"Check dangerous scripts", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
-        paths = [
-            "/wp-mail.php",
-            "/wp-cron.php",
-            "/wp-signup.php",
-            "/wp-activate.php",
-            "/wp-admin/maint/repair.php",
-        ]
-        urls = [self.scheme + "://" + self.domain + path for path in paths]
-        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            result = executor.map(self.check_url, urls, [True] * len(urls))
+    def wordlist_discovery(self, wordlist=None, title="files", show_responses=False, search_in_response="", method=None):
+        # if wordlist=backup zavolej také funkci, která vytvoří seznam souborů tvořených z názvu domény
+        ptprint(f"{title.capitalize()} discovery", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
 
-    def check_url(self, url, show_responses=False):
-        """Funkce pro ověření, zda soubor/adresář existuje"""
+        wordlist_file = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", f"{wordlist}.txt")
+        with open(wordlist_file, "r") as file:
+            lines = file.readlines()  # Načteme všechny řádky najednou
+            tested_files = (path.strip() for path in lines if not path.rstrip().endswith('.'))
+            tested_files2 = (path.strip() for path in lines if path.rstrip().endswith('.'))
+
+            # if backupfiles are searching, add variations od domain name (example. example_com. example-com.) to wordlist
+            if (wordlist == "backups"):
+                tested_files2 = chain(tested_files2, ["/" + self.domain2th + "."])
+                tested_files2 = chain(tested_files2, ["/" + self.domain2th + "_" + self.tld + "."])
+                tested_files2 = chain(tested_files2, ["/" + self.domain2th + "-" + self.tld + "."])
+            combinations = (f"{tf}{ext}" for tf in tested_files2 for ext in ['sql', 'sql.gz', 'zip', 'rar', 'tar', 'tar.gz', 'tgz', '7z', 'arj'])
+            tested_files = chain(tested_files, combinations)
+
+            if (wordlist == "configs"):
+                combinations = ([f"{tf}{ext}" for tf in tested_files2 for ext in ['php_', 'php~', 'bak', 'old', 'zal', 'backup', 'bck', 'php.bak', 'php.old', 'php.zal', 'php.bck', 'php.backup']])
+                tested_files = chain(tested_files, combinations)
+
+            urls = [self.scheme + "://"+ self.domain + tested_file for tested_file in tested_files]
+
+            with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
+                result = list(executor.map(self.check_url, urls, [wordlist] * len(urls), [show_responses] * len(urls), [search_in_response] * len(urls), [method] * len(urls)))
+
+        if all(r is None for r in result):
+            ptprinthelper.ptprint(f"No {title} discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+        else:
+            ptprinthelper.ptprint(f" ", "", condition=not self.args.json, end="", flush=True, indent=4, clear_to_eol=True)
+
+
+    def check_url(self, url, wordlist=None, show_responses=False, search_in_response="", method=None):
+        method = self.head_method_allowed if method is None else method
         try:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            if ("/wp-admin/maint/repair.php" in url):
-                response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
-            else:
-                response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers) if not self.head_method_allowed else requests.head(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
+            response = requests.head(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers) if method == "head" else requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
 
-            if ("/wp-admin/maint/repair.php" in url) and (response.status_code == 200) and ("define('WP_ALLOW_REPAIR', true);".lower() in response.text.lower()):
-                ptprinthelper.ptprint(f"[{response.status_code}] {url}", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+            # Special checks
+            #################
+            pattern = r"(?:in\s+)([a-zA-Z]:\\[\\\w.-]+|/[\w./-]+)"
+            matches: list = re.findall(pattern, response.text, re.IGNORECASE)
+
+            if (wordlist == "fpd") and matches:
+                ptprinthelper.ptprint(f"[{response.status_code}] {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+                ptprint("".join(matches), "ADDITIONS", colortext=True, condition=not self.args.json, end="\n", flush=True, indent=8, clear_to_eol=True)
+                return url
+            else:
                 return
 
-            if response.status_code == 200:
+            if response.status_code == 200 and search_in_response in response.text.lower():
+                if ((wordlist == "dangerous") and "/wp-admin/maint/repair.php" in url) and ("define('WP_ALLOW_REPAIR', true);".lower() in response.text.lower()):
+                    return
+            #################
+
                 ptprinthelper.ptprint(f"[{response.status_code}] {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
                 return url
             else:
@@ -195,52 +128,6 @@ class SourceEnumeration:
 
         except requests.exceptions.RequestException as e:
             return
-
-    def check_settings_availability(self):
-        ptprint(f"Check access to API", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
-        self.check_url(f"{self.full_domain}/wp-json/wp/v2/settings", show_responses=True),
-        self.check_url(f"{self.full_domain}/wp-json/wp-site-health/v1/tests/background-updates", show_responses=True)
-
-    def discover_phpinfo(self):
-        ptprint(f"Information pages discovery", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
-        paths = [
-            "phpinfo.php",
-            "phpinfo.php3",
-            "info.php",
-            "info.php3",
-        ]
-        urls = [self.scheme + "://"+ self.domain + "/" + path for path in paths]
-        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            result = list(executor.map(self.check_url, urls, [False] * len(urls)))
-
-        if all(r is None for r in result):
-            ptprinthelper.ptprint(f"No information pages discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-        #else:
-        #    ptprinthelper.ptprint(f" ", "", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-
-
-    def discover_status_files(self):
-        ptprint(f"Statistics discovery", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
-        paths = [
-            "server-status",
-            "server-info",
-            "stats",
-            "stat",
-            "awstat",
-            "statistics",
-        ]
-        urls = [self.scheme + "://"+ self.domain + "/" + path for path in paths]
-        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            result = list(executor.map(self.check_url, urls, [False] * len(urls)))
-
-        if all(r is None for r in result):
-            ptprinthelper.ptprint(f"No statistics pages discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-        else:
-            ptprinthelper.ptprint(f" ", "", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-
-
-
-
 
 
     def print_media(self, enumerated_users):
@@ -273,19 +160,17 @@ class SourceEnumeration:
         try:
             response = requests.get(f"{self.BASE_URL}/wp-json/wp/v2/media?page=1&per_page=100", proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
             for m in response.json():
-                #result.append({"source_url": m.get("source_url"), "author_id": m.get("author"), "uploaded": m.get("date_gmt"), "modified": m.get("modified_gmt"), "title": m.get("title").get("rendered")})
                 result.append({"source_url": m.get("source_url"), "author_id": m.get("author"), "uploaded": m.get("date_gmt"), "modified": m.get("modified_gmt"), "title": m.get("title").get("rendered")})
             if response.status_code != 200:
                 raise ValueError
         except Exception as e:
             ptprinthelper.ptprint(f"API is not available [{response.status_code}]", "WARNING", condition=not self.args.json, indent=4)
             return
-        #article_result = set()
 
         # Try get a parse Page 2-99
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            page_range = range(2, 100)  # Počínaje stránkou 2 až do 99
-            for i in range(0, len(page_range), 10):  # Posíláme po 10 stránkách najednou
+            page_range = range(2, 100)  # Pages from 2 to 99
+            for i in range(0, len(page_range), 10):  # Send 10 requests to pages together
                 futures = {executor.submit(fetch_page, page_range[j]): page_range[j] for j in range(i, min(i + 10, len(page_range)))}
                 stop_processing = False
                 for future in concurrent.futures.as_completed(futures):
@@ -311,3 +196,27 @@ class SourceEnumeration:
             write_to_file(filename, '\n'.join(source_urls))
 
         return source_urls
+    
+    def check_directory_listing(self, url_list: list, print_text: bool = True) -> list:
+        """Checks for directory listing, returns list of vulnerable URLs."""
+        ptprint(f"Directory listing", "TITLE", condition=print_text and not self.args.json, newline_above=True, indent=0, colortext=True)
+        vuln_urls = Queue()
+
+        def check_url(url):
+            if not url.endswith("/"):
+                url += "/"
+            ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=print_text and not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
+            try:
+                response = requests.get(url, timeout=5, proxies=self.args.proxy, verify=False, headers=self.args.headers)
+                if response.status_code == 200 and "index of /" in response.text.lower():
+                    vuln_urls.put(url)  # ✅ Thread-safe zápis
+                    ptprinthelper.ptprint(f"{url}", "VULN", condition=print_text and not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+                else:
+                    ptprinthelper.ptprint(f"{url}", "OK", condition=print_text and not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+            except requests.exceptions.RequestException as e:
+                ptprint(f"Error retrieving response from {url}. Reason: {e}", "ERROR", condition=not self.args.json, indent=4)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
+            executor.map(check_url, url_list)
+
+        return list(vuln_urls.queue)

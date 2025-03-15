@@ -1,0 +1,6 @@
+/.git/HEAD
+/wp-content/.git/HEAD
+/wp-content/uploads/.git/HEAD
+/.svn/entries
+/wp-content/.svn/entries
+/wp-content/uploads/.svn/entries

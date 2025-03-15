@@ -1,0 +1,5 @@
+/wp-includes/compat.php
+/wp-includes/meta.php
+/wp-content/plugins/hello.php
+/wp-content/plugins/wordpress-seo/admin/admin-settings-changed-listener.php
+/wp-content/db.php

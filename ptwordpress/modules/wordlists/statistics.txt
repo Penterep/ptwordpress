@@ -1,0 +1,6 @@
+/server-status
+/server-info
+/stats
+/stat
+/awstat
+/statistics

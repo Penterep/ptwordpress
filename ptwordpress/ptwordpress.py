@@ -50,7 +50,6 @@ from modules.wpscan_api import WPScanAPI
 from modules.routes_walker import APIRoutesWalker
 from modules.dual_output import DualOutput
 from modules.plugins.hashes import Hashes
-from modules.plugins.fpd import FullPathDisclosure
 
 import defusedxml.ElementTree as ET
 
@@ -131,23 +130,19 @@ class PtWordpress:
         self.print_supported_versions(wp_version=self.wp_version) # From API
         self.print_robots_txt(robots_txt_response=self.robots_txt_response)
         self.process_sitemap(robots_txt_response=self.robots_txt_response)
-
-        #self.parse_authentication_from_rest(rest_response=self.rest_response)
         self.SourceFinder.discover_xml_rpc()
-        self.SourceFinder.discover_admin_login_page()
-        self.SourceFinder.discover_config_files()
-        self.SourceFinder.check_dangerous_scripts()
-        self.SourceFinder.check_settings_availability()
-        self.SourceFinder.check_directory_listing(url_list=[self.BASE_URL + path for path in ["/assets", "/wp-content", "/wp-content/uploads", "/wp-content/plugins", "/wp-content/themes", "/wp-includes", "/wp-includes/js", ]])
-        FullPathDisclosure(args=self.args, base_url=self.BASE_URL).check_full_path_disclosure()
-
-        self.SourceFinder.discover_logs()
-        self.SourceFinder.discover_database_management_interface()
-        self.SourceFinder.discover_phpinfo()
-        self.SourceFinder.discover_status_files()
-        self.SourceFinder.discover_backups()
-        self.SourceFinder.discover_repositories()
-
+        self.SourceFinder.wordlist_discovery("admins", title="admin pages", show_responses=True)
+        self.SourceFinder.wordlist_discovery("configs", title="configuration files or pages")
+        self.SourceFinder.wordlist_discovery("dangerous", title="access to dangerous scripts", method="get")
+        self.SourceFinder.wordlist_discovery("settings", title="settings files")
+        self.SourceFinder.wordlist_discovery("directories", title="directory listing", search_in_response="index of", method="get")
+        self.SourceFinder.wordlist_discovery("fpd", title="Full Path Disclosure vulnerability", method="get")
+        self.SourceFinder.wordlist_discovery("logs", title="log files")
+        self.SourceFinder.wordlist_discovery("managements", title="management interface")
+        self.SourceFinder.wordlist_discovery("informations", title="information pages")
+        self.SourceFinder.wordlist_discovery("statistics", title="statistics")
+        self.SourceFinder.wordlist_discovery("backups", title="backup files or directories")
+        self.SourceFinder.wordlist_discovery("repositories", title="repositories")
         plugins = self.run_plugin_discovery(response=self.base_response)
         themes = self.run_theme_discovery(response=self.base_response)
 
@@ -515,6 +510,7 @@ class PtWordpress:
             return True if response.status_code == 200 else False
         except:
             return False
+        
 
     def start_readme_dictionary_attack(self, url, print_title=True, is_vuln=False):
         """Start Dictionary attack"""
@@ -551,6 +547,7 @@ class PtWordpress:
         if is_vuln is False:
             ptprinthelper.ptprint(f"No readme files discovered" if not vuln_urls else " ", "OK" if not vuln_urls else "TEXT", not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
 
+
     def _process_meta_tags(self):
         ptprinthelper.ptprint(f"Meta tags", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         soup = BeautifulSoup(self.base_response.text, 'lxml')
@@ -562,6 +559,7 @@ class PtWordpress:
                 ptprinthelper.ptprint(f"{tag.get('content')}", "TEXT", condition=not self.args.json, colortext=False, indent=4)
         else:
             ptprinthelper.ptprint(f"Found none", "TEXT", condition=not self.args.json, colortext=False, indent=4)
+
 
     def parse_routes_into_nodes(self, url: str) -> list:
         rest_url = self.REST_URL
@@ -585,6 +583,7 @@ class PtWordpress:
             self.ptjsonlib.add_nodes(nodes_to_add)
 
         return routes_to_test
+    
 
     def update_status_code_in_nodes(self):
         if self.use_json:
@@ -593,15 +592,6 @@ class PtWordpress:
                     if node["key"] == dict_["id"]:
                         node["properties"].update({"status_code": dict_["status_code"]})
 
-    def parse_authentication_from_rest(self, rest_response):
-        ptprinthelper.ptprint(f"Authentication", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-        if not self.try_parse_response_json(rest_response=rest_response):
-            return
-        rest_response = rest_response.json()
-        authentication = rest_response.get("authentication", [])
-        if authentication:
-            for auth in authentication:
-                ptprinthelper.ptprint(f"{auth}", "TEXT", condition=not self.args.json, indent=4)
 
     def parse_namespaces_from_rest(self, rest_response):
         ptprinthelper.ptprint(f"Namespaces (API provided by addons)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)

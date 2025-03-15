@@ -1,0 +1,4 @@
+/phpinfo.php
+/phpinfo.php3
+/info.php
+/info.php3

@@ -1,0 +1,7 @@
+/assets/
+/wp-content/
+/wp-content/uploads/
+/wp-content/plugins/
+/wp-content/themes/
+/wp-includes/
+/wp-includes/js/

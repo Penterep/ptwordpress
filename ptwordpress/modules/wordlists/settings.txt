@@ -1,0 +1,2 @@
+/wp-json/wp/v2/settings
+/wp-json/wp-site-health/v1/tests/background-updates

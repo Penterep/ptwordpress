@@ -1,0 +1,9 @@
+/adminer/adminer.php
+/adminer.php
+/admin/adminer.php
+/wp-admin/adminer.php
+/phpmyadmin/
+/admin/phpmyadmin/
+/wp-admin/phpmyadmin/
+/database/
+/cpanel/

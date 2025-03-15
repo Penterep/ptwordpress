@@ -1,0 +1,5 @@
+/wp-mail.php
+/wp-cron.php
+/wp-signup.php
+/wp-activate.php
+/wp-admin/maint/repair.php
