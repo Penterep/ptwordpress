@@ -16,7 +16,7 @@ class FullPathDisclosure:
 
     def check_full_path_disclosure(self):
         """Check for Full Path Disclosure"""
-        ptprint(f"Testing for Full Path Disclosure", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
+        ptprint(f"Search for Full Path Disclosure", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
         paths = [
             "/wp-includes/compat.php",
             "/wp-includes/meta.php",
@@ -30,21 +30,21 @@ class FullPathDisclosure:
             for result_dict in result:
                 for vuln_path, leaked_paths in result_dict.items():
                     ptprint(f'\n    '.join(leaked_paths), "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-                    ptprint(vuln_path, "TEXT", condition=not self.args.json, end="\n", flush=True, indent=8, clear_to_eol=True)
+                    ptprint(self.base_url + vuln_path, "ADDITIONS", condition=not self.args.json, end="\n", flush=True, indent=8, clear_to_eol=True)
         else:
-            ptprint("No FPD discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+            ptprint("No Full Path Disclosure discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
 
     def _check_url(self, path):
         """Thread function"""
         try:
             url = self.full_domain + "/" + path
             ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False)
-            if response.status_code == 200:
-                pattern = r"(?:in\s+)([a-zA-Z]:\\[\\\w.-]+|/[\w./-]+)"
-                matches = re.findall(pattern, response.text, re.IGNORECASE)
+            response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
+            pattern = r"(?:in\s+)([a-zA-Z]:\\[\\\w.-]+|/[\w./-]+)"
+            matches: list = re.findall(pattern, response.text, re.IGNORECASE)
+            if matches:
                 return {path: matches}
-        except requests.exceptions.RequestException as e:
+        except:
             return
 
     def _get_full_domain(self):

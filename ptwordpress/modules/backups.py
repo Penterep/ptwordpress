@@ -78,7 +78,7 @@ class BackupsFinder:
         """Funkce pro ověření, zda soubor/adresář existuje"""
         try:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False) if not self.head_method_allowed else requests.head(url, proxies=self.args.proxy, verify=False, allow_redirects=False)
+            response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers) if not self.head_method_allowed else requests.head(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
             if response.status_code == 200:
                 ptprinthelper.ptprint(f"[{response.status_code}] {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
                 self.vulnerable_urls.put(url)
@@ -139,11 +139,10 @@ class BackupsFinder:
                 for future in as_completed(futures):
                     future.result()
 
-
     def check_url(self, url):
         try:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False) if not self.head_method_allowed else requests.head(url, proxies=self.args.proxy, verify=False, allow_redirects=False)
+            response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers) if not self.head_method_allowed else requests.head(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
 
             if"/wp-admin/maint/repair.php" in url and response.status_code == 200 and "define('WP_ALLOW_REPAIR', true);".lower() in response.text.lower():
                 return

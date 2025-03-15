@@ -25,83 +25,6 @@ class SourceEnumeration:
         self.scheme      = self.extract_result.scheme
         self.full_domain = f"{self.scheme}://{self.domain}"
 
-    def print_media(self, enumerated_users):
-        """Print all media discovered via API"""
-
-        def get_user_slug_or_name(user_id):
-            for user in enumerated_users:
-                if user["id"] == str(user_id):
-                    return user.get("slug") or user.get("name")
-            return str(user_id)
-
-        def fetch_page(page):
-            try:
-                scrapped_media = []
-                url = f"{self.BASE_URL}/wp-json/wp/v2/media?page={page}&per_page=100"
-                ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-                response = requests.get(url, proxies=self.args.proxy, verify=False)
-                if response.status_code == 200 and response.json():
-                    for m in response.json():
-                        scrapped_media.append({"source_url": m.get("source_url"), "author_id": m.get("author"), "uploaded": m.get("date_gmt"), "modified": m.get("modified_gmt"), "title": m["title"].get("rendered")})
-                    return scrapped_media
-            except Exception as e:
-                return
-
-
-        result = []
-        source_urls = set()
-
-        # Try get & parse Page 1
-        ptprinthelper.ptprint(f"Media discovery (title, author, uploaded, modified, url)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-        try:
-            response = requests.get(f"{self.BASE_URL}/wp-json/wp/v2/media?page=1&per_page=100", proxies=self.args.proxy, verify=False)
-            data = response.json()
-            for m in response.json():
-                result.append({"source_url": m.get("source_url"), "author_id": m.get("author"), "uploaded": m.get("date_gmt"), "modified": m.get("modified_gmt"), "title": m["title"].get("rendered")})
-            if response.status_code != 200:
-                raise ValueError
-        except Exception as e:
-            ptprinthelper.ptprint(f"API is not available [{response.status_code}]", "WARNING", condition=not self.args.json, indent=4)
-            return
-
-
-        #article_result = set()
-
-        # Try get a parse Page 2-99
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            page_range = range(2, 100)  # Počínaje stránkou 2 až do 99
-            for i in range(0, len(page_range), 10):  # Posíláme po 10 stránkách najednou
-                futures = {executor.submit(fetch_page, page_range[j]): page_range[j] for j in range(i, min(i + 10, len(page_range)))}
-                stop_processing = False
-                for future in concurrent.futures.as_completed(futures):
-                    data = future.result()
-                    if data is None:
-                        stop_processing = True
-                        break
-                    else:
-                        result.extend(data)
-                if stop_processing:
-                    break
-
-        source_urls = set()
-        for m in result:
-            source_urls.add(m.get("source_url"))
-
-        #for source in source_urls:
-        #    ptprinthelper.ptprint(source, "ADDITIONS", colortext=True, condition=not self.args.json, indent=4)
-        for media in result:
-            ptprinthelper.ptprint(f'{media.get("title")}, {get_user_slug_or_name(media.get("author_id"))}, {media.get("uploaded")}, {media.get("modified")}', "ADDITIONS", colortext=False, condition=not self.args.json, indent=4, clear_to_eol=True)
-            ptprinthelper.ptprint(media.get("source_url"), "ADDITIONS", colortext=True, condition=not self.args.json, indent=4, clear_to_eol=True)
-
-        if self.args.output:
-            filename = self.args.output + "-media.txt"
-            #if "." in self.args.output:
-            #    splitted = self.args.output.split(".")
-            #    filename = f"{splitted[0]}-media.{splitted[-1]}"
-            write_to_file(filename, '\n'.join(source_urls))
-
-        return source_urls
-
     def discover_xml_rpc(self):
         """Discover XML-RPC API"""
         xml_data = '''<?xml version="1.0" encoding="UTF-8"?>
@@ -110,11 +33,11 @@ class SourceEnumeration:
           <params></params>
         </methodCall>'''
         ptprinthelper.ptprint(f"Testing for xmlrpc.php availability", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-        response = requests.post(f"{self.BASE_URL}/xmlrpc.php", proxies=self.args.proxy, verify=False, data=xml_data, allow_redirects=False)
+        response = requests.post(f"{self.BASE_URL}/xmlrpc.php", proxies=self.args.proxy, verify=False, data=xml_data, allow_redirects=False, headers=self.args.headers)
         ptprinthelper.ptprint(f"[{response.status_code}] {response.url}", "TEXT", condition=not self.args.json, indent=4)
         ptprinthelper.ptprint(f"Script xmlrpc.php is {'available' if response.status_code == 200 else 'not available'}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
 
-        #ptprinthelper.ptprint(f"[{response.status_code}] {http.client.responses.get(response.status_code, 'Unknown status code')} {'Available' if response.status_code == 200 else ''}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4) 
+        #ptprinthelper.ptprint(f"[{response.status_code}] {http.client.responses.get(response.status_code, 'Unknown status code')} {'Available' if response.status_code == 200 else ''}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
 
     def discover_repositories(self):
         """Discover repositories by accessing ./git/HEAD, /.svn/entries files."""
@@ -123,13 +46,14 @@ class SourceEnumeration:
         for path in ["/.git/HEAD", "/wp-content/.git/HEAD", "/wp-content/uploads/.git/HEAD", "/.svn/entries", "/wp-content/.svn/entries", "/wp-content/uploads/.svn/entries" ]:
             url = self.BASE_URL + path
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = requests.get(url=url, proxies=self.args.proxy, verify=False, allow_redirects=False)
+            response = requests.get(url=url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
             try:
                 if response.status_code == 200:
                     ptprinthelper.ptprint(f"Repository discovered: {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
                     is_vuln = True
             except requests.RequestException as e:
                 pass
+        ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, end="\r", flush=True, indent=0, clear_to_eol=True)
         if not is_vuln:
             ptprinthelper.ptprint(f"No repository discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
 
@@ -140,7 +64,7 @@ class SourceEnumeration:
         for path in ["/.htaccess", "/.htpasswd"]:
             url = self.BASE_URL + path
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = requests.get(url=url, proxies=self.args.proxy, verify=False, allow_redirects=False)
+            response = requests.get(url=url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
             try:
                 if response.status_code == 200:
                     ptprinthelper.ptprint(f"Allowed access to config file: {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
@@ -157,7 +81,7 @@ class SourceEnumeration:
         for path in  ["/wp-admin/", "/admin", "/wp-login.php"]:
             full_url = self.BASE_URL + path
             try:
-                response = requests.get(full_url, allow_redirects=False, proxies=self.args.proxy, verify=False)
+                response = requests.get(full_url, allow_redirects=False, proxies=self.args.proxy, verify=False, headers=self.args.headers)
                 # {http.client.responses.get(response.status_code, 'Unknown status code')}
                 result.append([f"{response.status_code}" , f"{full_url}", response.headers.get("location", "")])
             except requests.exceptions.RequestException:
@@ -183,7 +107,7 @@ class SourceEnumeration:
                 url += "/"
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=print_text and not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
             try:
-                response = requests.get(url, timeout=5, proxies=self.args.proxy, verify=False)
+                response = requests.get(url, timeout=5, proxies=self.args.proxy, verify=False, headers=self.args.headers)
                 if response.status_code == 200 and "index of /" in response.text.lower():
                     vuln_urls.put(url)  # ✅ Thread-safe zápis
                     ptprinthelper.ptprint(f"{url}", "VULN", condition=print_text and not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
@@ -209,27 +133,31 @@ class SourceEnumeration:
 
 
     def check_readme_files(self, themes, plugins):
-        """"""
-        ptprint(f"Check readme files", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
-        #ptprint(f"Readme discovery: {url}", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True, clear_to_eol=True)
+        """Check for basic readme files at site root and for each theme and plugin."""
 
-        result = [self.check_url(url=f"{self.BASE_URL}/readme.html")]
-        urls = []
+        ptprint(f"Check readme files", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
+        urls: list = []
         for t in themes:
             urls.append(f"{self.BASE_URL}/wp-content/themes/{t}/readme.txt")
         for p in plugins:
             urls.append(f"{self.BASE_URL}/wp-content/plugins/{p}/readme.txt")
 
+        result: list = [self.check_url(url=f"{self.BASE_URL}/readme.html")]
         with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
             result.extend(list(executor.map(self.check_url, urls)))
 
+        ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, end="\r")
+        result = [result for result in result if result is not None]
+
+        #if result:
+        #    ptprinthelper.ptprint(f"KKKKKK", "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True)
         if all(r is None for r in result):
-            ptprinthelper.ptprint(f"No readme files discovered", "OK", condition=not self.args.json, end="\n", flush=True, colortext=False, indent=4, clear_to_eol=True)
-        else:
-            ptprinthelper.ptprint(f"yy ", "TEXT", condition=not self.args.json, end="\n", flush=True, indent=0, clear_to_eol=True)
+            if not self.args.read_me: # Print only if no read_me test specified.
+                ptprinthelper.ptprint(f"No readme files discovered", "OK", condition=not self.args.json, end="\n", flush=True, colortext=False, indent=4, clear_to_eol=True)
+        #else:
+        #    ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, end="\n", flush=True, indent=0, clear_to_eol=True)
 
-        return result
-
+        return [result for result in result if result is not None]
 
     def check_dangerous_scripts(self):
         """"""
@@ -250,9 +178,9 @@ class SourceEnumeration:
         try:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
             if ("/wp-admin/maint/repair.php" in url):
-                response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False)
+                response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
             else:
-                response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False) if not self.head_method_allowed else requests.head(url, proxies=self.args.proxy, verify=False, allow_redirects=False)
+                response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers) if not self.head_method_allowed else requests.head(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
 
             if ("/wp-admin/maint/repair.php" in url) and (response.status_code == 200) and ("define('WP_ALLOW_REPAIR', true);".lower() in response.text.lower()):
                 ptprinthelper.ptprint(f"[{response.status_code}] {url}", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
@@ -286,20 +214,20 @@ class SourceEnumeration:
             result = list(executor.map(self.check_url, urls, [False] * len(urls)))
 
         if all(r is None for r in result):
-            ptprinthelper.ptprint(f"No information files discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-        else:
-            ptprinthelper.ptprint(f" ", "", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+            ptprinthelper.ptprint(f"No information pages discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+        #else:
+        #    ptprinthelper.ptprint(f" ", "", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
 
 
     def discover_status_files(self):
         ptprint(f"Searching for statistics", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
         paths = [
-            "/server-status",
-            "/server-info",
-            "/stats",
-            "/stat",
-            "/awstat",
-            "/statistics",
+            "server-status",
+            "server-info",
+            "stats",
+            "stat",
+            "awstat",
+            "statistics",
         ]
         urls = [self.scheme + "://"+ self.domain + "/" + path for path in paths]
         with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
@@ -309,3 +237,77 @@ class SourceEnumeration:
             ptprinthelper.ptprint(f"No statistics pages discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
         else:
             ptprinthelper.ptprint(f" ", "", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+
+
+
+
+
+
+    def print_media(self, enumerated_users):
+        """Print all media discovered via API"""
+        def get_user_slug_or_name(user_id):
+            for user in enumerated_users:
+                if user["id"] == str(user_id):
+                    return user.get("slug") or user.get("name")
+            return str(user_id)
+
+        def fetch_page(page):
+            try:
+                scrapped_media = []
+                url = f"{self.BASE_URL}/wp-json/wp/v2/media?page={page}&per_page=100"
+                ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
+                response = requests.get(url, proxies=self.args.proxy, verify=False, headers=self.args.headers)
+                if response.status_code == 200 and response.json():
+                    for m in response.json():
+                        scrapped_media.append({"source_url": m.get("source_url"), "author_id": m.get("author"), "uploaded": m.get("date_gmt"), "modified": m.get("modified_gmt"), "title": m["title"].get("rendered")})
+                    return scrapped_media
+            except Exception as e:
+                return
+
+
+        result = []
+        source_urls = set()
+
+        # Try get & parse Page 1
+        ptprinthelper.ptprint(f"Media discovery (title, author, uploaded, modified, url)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        try:
+            response = requests.get(f"{self.BASE_URL}/wp-json/wp/v2/media?page=1&per_page=100", proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
+            for m in response.json():
+                #result.append({"source_url": m.get("source_url"), "author_id": m.get("author"), "uploaded": m.get("date_gmt"), "modified": m.get("modified_gmt"), "title": m.get("title").get("rendered")})
+                result.append({"source_url": m.get("source_url"), "author_id": m.get("author"), "uploaded": m.get("date_gmt"), "modified": m.get("modified_gmt"), "title": m.get("title").get("rendered")})
+            if response.status_code != 200:
+                raise ValueError
+        except Exception as e:
+            ptprinthelper.ptprint(f"API is not available [{response.status_code}]", "WARNING", condition=not self.args.json, indent=4)
+            return
+        #article_result = set()
+
+        # Try get a parse Page 2-99
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
+            page_range = range(2, 100)  # Počínaje stránkou 2 až do 99
+            for i in range(0, len(page_range), 10):  # Posíláme po 10 stránkách najednou
+                futures = {executor.submit(fetch_page, page_range[j]): page_range[j] for j in range(i, min(i + 10, len(page_range)))}
+                stop_processing = False
+                for future in concurrent.futures.as_completed(futures):
+                    data = future.result()
+                    if data is None:
+                        stop_processing = True
+                        break
+                    else:
+                        result.extend(data)
+                if stop_processing:
+                    break
+
+        source_urls = set()
+        for m in result:
+            source_urls.add(m.get("source_url"))
+
+        for media in result:
+            ptprinthelper.ptprint(f'{media.get("title")}, {get_user_slug_or_name(media.get("author_id"))}, {media.get("uploaded")}, {media.get("modified")}', "ADDITIONS", colortext=False, condition=not self.args.json, indent=4, clear_to_eol=True)
+            ptprinthelper.ptprint(media.get("source_url"), "ADDITIONS", colortext=True, condition=not self.args.json, indent=4, clear_to_eol=True)
+
+        if self.args.output:
+            filename = self.args.output + "-media.txt"
+            write_to_file(filename, '\n'.join(source_urls))
+
+        return source_urls

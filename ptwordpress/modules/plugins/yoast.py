@@ -22,13 +22,14 @@ class YoastScraper:
                 for site in self.find_key_in_json(post, "sameAs"):
                     self.result["sites"].add(site)
 
-            elif post.get("yoast_head"):
+            if post.get("yoast_head"):
                 names = re.findall(r"[\"']name[\"']:[\"'](\w+)[\"']", post.get("yoast_head", ""))
                 for name in names:
-                    self.result["users"].add(names)
+                    self.result["users"].add(name)
 
     def print_result(self):
         """Print results"""
+
         if all(not v for v in self.result.values()):
             return
 

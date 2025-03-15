@@ -42,7 +42,7 @@ class RssFeedEnumerator:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\n", flush=True, colortext=True, indent=4, clear_to_eol=True)
 
             try:
-                response = requests.get(url=url, proxies=self.proxy, verify=False, allow_redirects=False)
+                response = requests.get(url=url, proxies=self.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
                 response_hash = hashlib.md5(response.content).hexdigest()
                 ptprinthelper.ptprint(f"[{response.status_code} {response.headers.get('location', '')} {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
 
@@ -63,14 +63,13 @@ class RssFeedEnumerator:
                                     if result:
                                         print(result)
 
-                            if any(result is None for result in results):  
+                            if any(result is None for result in results):
                                 break
 
                             author_id += batch_size
 
                 # Handling redirection if it occurs
                 elif response.is_redirect:
-                    #input((url, "url je redirekt")) 
                     self.handle_redirect(response, path)
 
             except requests.RequestException as e:
@@ -81,7 +80,7 @@ class RssFeedEnumerator:
         url = self.BASE_URL + path.replace("=1", f"={i}")
         final_url = self.handle_redirect(url)  # Follow redirect if needed
         try:
-            response = requests.get(final_url, allow_redirects=False, proxies=self.proxy, verify=False)
+            response = requests.get(final_url, allow_redirects=False, proxies=self.proxy, verify=False, headers=self.args.headers)
 
             if response.status_code == 200:
                 response_hash = hashlib.md5(response.content).hexdigest()

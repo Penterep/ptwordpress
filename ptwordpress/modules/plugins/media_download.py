@@ -12,7 +12,7 @@ class MediaDownloader:
 
     def _download_file(self, url):
         try:
-            response = requests.get(url, stream=True)
+            response = requests.get(url, stream=True, headers=self.args.headers, verify=False, proxies=self.args.proxy)
             response.raise_for_status()
             filename = url.split("/")[-1]
             with open(os.path.join(self.save_path, filename), "wb") as file:

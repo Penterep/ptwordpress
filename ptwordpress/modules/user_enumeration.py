@@ -36,12 +36,10 @@ class UserEnumeration:
 
     def run(self):
         self._enumerate_users_by_rss_feed()
-        #input(".")
         self._enumerate_users_by_author_name()        # example.com/author/<author> (dictionary attack)
         self._enumerate_users_by_author_id()          # example.com/?author=<id> (range attack)
         self.enumerate_by_users()                     # example.com/wp-json/wp/v2/users?page=<id>&per_page=100
         self._enumerate_users_by_posts()
-        #self.map_user_id_to_slug()
         self.print_enumerated_users_table()
         self.print_unique_logins()
         #self.print_vulnerable_endpoints()
@@ -65,13 +63,14 @@ class UserEnumeration:
 
     def print_enumerated_users_table(self):
         ptprinthelper.ptprint(f"Enumerated users", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-        users = list(self.RESULT_QUERY.queue) #self.remove_duplicates(list(self.RESULT_QUERY.queue))
-
-        users.sort(key=lambda x: int(x["id"]) if isinstance(x["id"], str) and x["id"].isdigit() else float('inf'))
+        users = list(self.RESULT_QUERY.queue)
 
         if not users:
             ptprinthelper.ptprint(f"No users discovered", "OK", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
             return
+
+        users = self.filter_duplicate_users(users)
+        users.sort(key=lambda x: int(x["id"]) if isinstance(x["id"], str) and x["id"].isdigit() else float('inf'))
 
         try:
             max_id_len   = (max(max(len(str(user["id"])) for user in users), 2) + 2) or 5
@@ -93,13 +92,25 @@ class UserEnumeration:
             filename = self.args.output + "-users.txt"
             write_to_file(filename, '\n'.join(user_lines))
 
+    def filter_duplicate_users(self, users):
+        unique_users = {}
+        filtered_users = []
+
+        for user in users:
+            name = user['name']
+            if user['id'] != '' or user['slug'] != '':
+                if name not in unique_users or (user['id'] == '' and user['slug'] == ''):
+                    filtered_users.append(user)
+                    unique_users[name] = user
+
+        return filtered_users
 
     def enumerate_by_users(self) -> list:
         """Enumerate users via /wp/v2/users/?per_page=100&page=<number> endpoint"""
         ptprinthelper.ptprint(f"User enumeration via API users ({self.BASE_URL}/wp-json/wp/v2/users)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         is_vuln = False
         for i in range(1, 100):
-            response = requests.get(f"{self.REST_URL}/wp/v2/users/?per_page=100&page={i}", proxies=self.args.proxy, verify=False)
+            response = requests.get(f"{self.REST_URL}/wp/v2/users/?per_page=100&page={i}", proxies=self.args.proxy, verify=False, headers=self.args.headers)
             if response.status_code == 200:
                 try:
                     if not response.json():
@@ -125,69 +136,59 @@ class UserEnumeration:
     def _enumerate_users_by_posts(self):
         """Enumerate users via https://example.com/wp-json/wp/v2/posts/?per_page=100&page=<number> endpoint"""
         ptprinthelper.ptprint(f"User enumeration via API posts ({self.BASE_URL}/wp-json/wp/v2/posts)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        enumerated_users = []
+        all_posts = []
+        seen_users = set()
 
         def fetch_page(page):
+            url = f"{self.REST_URL}/wp/v2/posts/?per_page=100&page={page}"
             try:
-                url = f"{self.REST_URL}/wp/v2/posts/?per_page=100&page={page}"
-                response = requests.get(url, proxies=self.args.proxy, verify=False)
-                posts: dict = response.json()
-                results = []
-
-                if response.status_code != 200 or not posts:
-                    return None
-
+                response = requests.get(url, proxies=self.args.proxy, verify=False, headers=self.args.headers)
                 with self.thread_lock:
-                    self.yoast_scraper.parse_posts(data=response.json())
                     self.email_scraper.parse_emails_from_response(response=response)
 
-                for post in posts:
-                    result = {
-                        "id": str(post.get("author", "")),
-                        "slug": "",
-                        "name": ""
-                    }
-                    with self.thread_lock:
-                        if result["id"] in seen_users:
-                            continue
-                        seen_users.add(result["id"])
-
-                    if result["id"]:
-                        result = self.map_user_id_to_slug(user_id=result["id"])
-                        if not result["slug"] and not result["name"]:
-                            ptprinthelper.ptprint(f"ID: {result['id']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
-                        else:
-                            ptprinthelper.ptprint(f"{result['id']}{' '*(8-len(result['id']))}{result['slug']}{' '*(40-len(result['slug']))}{result['name']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
-                        results.append(result)
-
-                return results if results else None
+                posts: list = response.json() # List
+                return posts if response.status_code == 200 else []
             except Exception as e:
-                return None
+                return []
 
-        results = []
-        seen_users = set()
-        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            page_range = range(1, 100)
-            all_results: list = []
-            #all_results: list = list(r for r in executor.map(fetch_page, page_range) if r is not None)
-            for result in executor.map(fetch_page, page_range):
-                if result is not None:
-                    all_results.append(result)
-                else:
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            for page in range(1, 999, 5):
+                pages = list(executor.map(fetch_page, range(page, page + 5)))
+                all_posts.extend([post for page in pages if page for post in page])
+
+                if any(not posts for posts in pages):  # If any page of the batch returns empty list, stop sending more requests
                     break
 
-        if all_results:
-            for user_list in all_results:
-                for user_object in user_list:
-                    self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, user_object)
+            self.yoast_scraper.parse_posts(data=all_posts)
+
+            for post in all_posts:
+                user = {"id": str(post.get("author", "")), "slug": "", "name": ""}
+                if user["id"] in seen_users:
+                    continue
+
+                seen_users.add(user["id"])
+
+                user = self.map_user_id_to_slug(user_id=user["id"])
+                if not user["slug"] and not user["name"]:
+                    ptprinthelper.ptprint(f"ID: {user['id']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+                else:
+                    ptprinthelper.ptprint(f"{user['id']}{' '*(8-len(user['id']))}{user['slug']}{' '*(40-len(user['slug']))}{user['name']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+                enumerated_users.append(user)
+
+        if enumerated_users:
+            for user in enumerated_users:
+                self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, user)
         else:
             ptprinthelper.ptprint(f"No users discovered", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
+
 
     def _enumerate_users_by_author_id(self) -> list:
         """Enumerate users via /?author=<id> query."""
         def check_author_id(author_id: int):
             url = f"{self.BASE_URL}/?author={author_id}"
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = requests.get(url, allow_redirects=False, proxies=self.args.proxy, verify=False)
+            response = requests.get(url, allow_redirects=False, proxies=self.args.proxy, verify=False, headers=self.args.headers)
             max_length = len(str(self.args.author_range[-1])) - len(str(author_id))
             user_id = response.url.split("=")[-1]
             if response.status_code == 200:
@@ -203,7 +204,7 @@ class UserEnumeration:
                 location = (self.BASE_URL + location) if location and location.startswith("/") else location
 
                 # Extracts username from Location header if possible.
-                new_response = requests.get(location, allow_redirects=False, proxies=self.args.proxy, verify=False) # for title extraction
+                new_response = requests.get(location, allow_redirects=False, proxies=self.args.proxy, verify=False, headers=self.args.headers) # for title extraction
                 name_from_title = self._extract_name_from_title(new_response)
                 if not name_from_title:
                     name_from_title = ""
@@ -214,6 +215,11 @@ class UserEnumeration:
                     nickname_max_length =  (20 - len(str(name_from_title)))
                     ptprinthelper.ptprint(f"[{response.status_code}] {response.url}{' '*max_length} →   {name_from_title} {' '*nickname_max_length}{slug}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
                     return {"id": str(user_id) if user_id.isdigit() else "", "name": name_from_title, "slug": slug}
+
+        """
+        base_site_title = requests.get(self.BASE_URL, proxies=self.args.proxy, verify=False, headers=self.args.headers)
+        base_title = re.search(r"<title>(.*?)</title>", base_site_title.text, re.IGNORECASE | re.DOTALL).groups()[0]
+        """
 
         futures: list = []
         results: list = []
@@ -242,7 +248,7 @@ class UserEnumeration:
             """Thread function"""
             url = f"{self.BASE_URL}/author/{author_name}/"
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False)
+            response = requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
 
             if response.status_code == 200:
                 title = self._extract_name_from_title(response)
@@ -266,7 +272,7 @@ class UserEnumeration:
 
     def _enumerate_users_via_comments(self):
         for i in range(1, 100):
-            response = requests.get(f"{self.REST_URL}/wp/v2/comments/?per_page=100&page={i}", allow_redirects=True, proxies=self.args.proxy, verify=False)
+            response = requests.get(f"{self.REST_URL}/wp/v2/comments/?per_page=100&page={i}", allow_redirects=True, proxies=self.args.proxy, verify=False, headers=self.args.headers)
             if response.status_code == 200:
                 if not response.json():
                     break
@@ -281,7 +287,7 @@ class UserEnumeration:
 
     def map_user_id_to_slug(self, user_id):
         """Retrieve user information by user_id"""
-        response = requests.get(f"{self.REST_URL}/wp/v2/users/{user_id}", allow_redirects=True, proxies=self.args.proxy, verify=False)
+        response = requests.get(f"{self.REST_URL}/wp/v2/users/{user_id}", allow_redirects=True, proxies=self.args.proxy, verify=False, headers=self.args.headers)
         if response.status_code == 200:
             result = {"id": user_id, "slug": response.json().get("slug"), "name": response.json().get("name", "")}
             return result
@@ -294,7 +300,7 @@ class UserEnumeration:
         """User enumeration via RSS feed"""
         ptprinthelper.ptprint(f"User enumeration via RSS feed ({self.BASE_URL}/feed)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         rss_authors = set()
-        response = requests.get(f"{self.BASE_URL}/feed", proxies=self.args.proxy, verify=False)
+        response = requests.get(f"{self.BASE_URL}/feed", proxies=self.args.proxy, verify=False, headers=self.args.headers)
         if response.status_code == 200:
             try:
                 root = ET.fromstring(response.text.strip())
@@ -318,8 +324,6 @@ class UserEnumeration:
             ptprinthelper.ptprint(f"API is not available [{response.status_code}]", "WARNING", condition=not self.args.json, indent=4)
 
     def parse_feed(self, response):
-        """TODO:"""
-        #ptprinthelper.ptprint(f"{url}", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         rss_authors = set()
         try:
             root = ET.fromstring(response.text.strip())
@@ -395,11 +399,17 @@ class UserEnumeration:
             raise ValueError(f"File {path} contains non-text (binary) data.")
 
 
-    def _extract_name_from_title(self, response):
+    def _extract_name_from_title(self, response, base_title=None):
         """Extracts full name from response title"""
-        # TODO: Scrape emails
         try:
             title = re.search(r"<title>(.*?)</title>", response.text, re.IGNORECASE | re.DOTALL).groups()[0]#[1].strip().split(" ", 2)
+
+            """
+            if base_title:
+                if base_title == title:
+                    return ""
+            """
+
             email_from_title = re.match(r"([\w\.-]+@[\w\.-]+\.?\w+)", title)
             name_from_title = None
             if email_from_title:
@@ -415,8 +425,7 @@ class UserEnumeration:
             else:
                 return email_from_title or name_from_title
         except Exception as e:
-            print(e)
-            #return ""
+            pass
 
     def update_queue(self, queue, user_data):
         temp_queue = Queue()
