@@ -40,7 +40,7 @@ class BackupsFinder:
 
     def run_log_discovery(self):
         self.vulnerable_urls = Queue()
-        ptprinthelper.ptprint(f"Logs discovery", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        ptprinthelper.ptprint(f"Log files discovery", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         domain = ((self.extract_result.subdomain + ".") if self.extract_result.subdomain else "") + self.extract_result.domain + "." + self.extract_result.suffix
         self.check_log_files(domain)
 
@@ -64,7 +64,7 @@ class BackupsFinder:
 
         self.vulnerable_urls = Queue()
         domain = ((self.extract_result.subdomain + ".") if self.extract_result.subdomain else "") + self.extract_result.domain + "." + self.extract_result.suffix
-        ptprinthelper.ptprint(f"Database management interface", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        ptprinthelper.ptprint(f"Database management interface discovery", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
             futures = [executor.submit(self.check_url, self.scheme + "://" + domain + file_) for file_ in files]
 

@@ -30,12 +30,12 @@ class Emails:
                 self.emails.add(email)
 
     def print_result(self):
-        ptprinthelper.ptprint("Email discovery (from posts)", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
+        ptprinthelper.ptprint("Discovered e-mail addresses (from posts)", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
         for email in sorted(list(self.emails)):
             ptprinthelper.ptprint(email, "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
 
         if not self.emails:
-            ptprinthelper.ptprint("No emails found", "OK", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+            ptprinthelper.ptprint("No email address found", "OK", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
 
         if self.args.output:
             filename = self.args.output + "-emails.txt"

@@ -62,7 +62,7 @@ class UserEnumeration:
             write_to_file(filename, '\n'.join(unique_slugs))
 
     def print_enumerated_users_table(self):
-        ptprinthelper.ptprint(f"Enumerated users", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        ptprinthelper.ptprint(f"Discovered users", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         users = list(self.RESULT_QUERY.queue)
 
         if not users:

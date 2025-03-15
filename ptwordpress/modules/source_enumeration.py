@@ -202,7 +202,7 @@ class SourceEnumeration:
         self.check_url(f"{self.full_domain}/wp-json/wp-site-health/v1/tests/background-updates", show_responses=True)
 
     def discover_phpinfo(self):
-        ptprint(f"Information pages (phpinfo)", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
+        ptprint(f"Information pages discovery", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
         paths = [
             "phpinfo.php",
             "phpinfo.php3",
@@ -220,7 +220,7 @@ class SourceEnumeration:
 
 
     def discover_status_files(self):
-        ptprint(f"Searching for statistics", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
+        ptprint(f"Statistics discovery", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
         paths = [
             "server-status",
             "server-info",
@@ -269,7 +269,7 @@ class SourceEnumeration:
         source_urls = set()
 
         # Try get & parse Page 1
-        ptprinthelper.ptprint(f"Media discovery (title, author, uploaded, modified, url)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        ptprinthelper.ptprint(f"Discovered media (title, author, uploaded, modified, url)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         try:
             response = requests.get(f"{self.BASE_URL}/wp-json/wp/v2/media?page=1&per_page=100", proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
             for m in response.json():

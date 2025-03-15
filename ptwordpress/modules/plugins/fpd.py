@@ -16,7 +16,7 @@ class FullPathDisclosure:
 
     def check_full_path_disclosure(self):
         """Check for Full Path Disclosure"""
-        ptprint(f"Search for Full Path Disclosure", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
+        ptprint(f"Full Path Disclosure discovery", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
         paths = [
             "/wp-includes/compat.php",
             "/wp-includes/meta.php",
@@ -30,9 +30,9 @@ class FullPathDisclosure:
             for result_dict in result:
                 for vuln_path, leaked_paths in result_dict.items():
                     ptprint(f'\n    '.join(leaked_paths), "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-                    ptprint(self.base_url + vuln_path, "ADDITIONS", condition=not self.args.json, end="\n", flush=True, indent=8, clear_to_eol=True)
+                    ptprint(self.base_url + vuln_path, "ADDITIONS", colortext=True, condition=not self.args.json, end="\n", flush=True, indent=8, clear_to_eol=True)
         else:
-            ptprint("No Full Path Disclosure discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+            ptprint("No FPD discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
 
     def _check_url(self, path):
         """Thread function"""
