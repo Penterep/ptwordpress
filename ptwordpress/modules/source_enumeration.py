@@ -40,56 +40,44 @@ class SourceEnumeration:
         ptprinthelper.ptprint(f"Script xmlrpc.php is {'available' if response.status_code == 200 else 'not available'}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
     
 
-    def check_readme_files(self, themes, plugins):
-        """Check for basic readme files at site root and for each theme and plugin."""
-
-        ptprint(f"Check readme files", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
-        urls: list = []
-        for t in themes:
-            urls.append(f"{self.BASE_URL}/wp-content/themes/{t}/readme.txt")
-        for p in plugins:
-            urls.append(f"{self.BASE_URL}/wp-content/plugins/{p}/readme.txt")
-
-        result: list = [self.check_url(url=f"{self.BASE_URL}/readme.html")]
-        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            result.extend(list(executor.map(self.check_url, urls)))
-
-        ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, end="\r")
-        result = [result for result in result if result is not None]
-
-        if all(r is None for r in result):
-            if not self.args.read_me:
-                ptprinthelper.ptprint(f"No readme files discovered", "OK", condition=not self.args.json, end="\n", flush=True, colortext=False, indent=4, clear_to_eol=True)
-
-        return [result for result in result if result is not None]
-    
-
-    def wordlist_discovery(self, wordlist=None, title="files", show_responses=False, search_in_response="", method=None):
-        # if wordlist=backup zavolej také funkci, která vytvoří seznam souborů tvořených z názvu domény
+    def wordlist_discovery(self, wordlist=None, title="files", url_path=None, show_responses=False, search_in_response="", method=None):
         ptprint(f"{title.capitalize()} discovery", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
 
-        wordlist_file = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", f"{wordlist}.txt")
-        with open(wordlist_file, "r") as file:
-            lines = file.readlines()  # Načteme všechny řádky najednou
-            tested_files = (path.strip() for path in lines if not path.rstrip().endswith('.'))
-            tested_files2 = (path.strip() for path in lines if path.rstrip().endswith('.'))
+        # Variable wordlist can be filename or list of files
+        if isinstance(wordlist, str):
+            wordlist_file = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", f"{wordlist}.txt")
+            with open(wordlist_file, "r") as file:
+                lines = file.readlines()
+        else:
+            lines = wordlist
 
-            # if backupfiles are searching, add variations od domain name (example. example_com. example-com.) to wordlist
-            if (wordlist == "backups"):
-                tested_files2 = chain(tested_files2, ["/" + self.domain2th + "."])
-                tested_files2 = chain(tested_files2, ["/" + self.domain2th + "_" + self.tld + "."])
-                tested_files2 = chain(tested_files2, ["/" + self.domain2th + "-" + self.tld + "."])
-            combinations = (f"{tf}{ext}" for tf in tested_files2 for ext in ['sql', 'sql.gz', 'zip', 'rar', 'tar', 'tar.gz', 'tgz', '7z', 'arj'])
+        tested_files = (path.strip() for path in lines if not path.rstrip().endswith('.'))
+        tested_files2 = (path.strip() for path in lines if path.rstrip().endswith('.'))
+
+        # if backupfiles are searching, add variations od domain name (example. example_com. example-com.) to wordlist
+        if (wordlist == "backups"):
+            tested_files2 = chain(tested_files2, ["/" + self.domain2th + ".", "/" + self.domain2th + "_" + self.tld + ".", "/" + self.domain2th + "-" + self.tld + "."])
+
+        # add files with extensions to testing list for wordlist items endings with "."
+        combinations = (f"{tf}{ext}" for tf in tested_files2 for ext in ['sql', 'sql.gz', 'zip', 'rar', 'tar', 'tar.gz', 'tgz', '7z', 'arj'])
+        tested_files = chain(tested_files, combinations)
+
+        if (wordlist == "configs"):
+            combinations = ([f"{tf}{ext}" for tf in tested_files2 for ext in ['php_', 'php~', 'bak', 'old', 'zal', 'backup', 'bck', 'php.bak', 'php.old', 'php.zal', 'php.bck', 'php.backup']])
             tested_files = chain(tested_files, combinations)
 
-            if (wordlist == "configs"):
-                combinations = ([f"{tf}{ext}" for tf in tested_files2 for ext in ['php_', 'php~', 'bak', 'old', 'zal', 'backup', 'bck', 'php.bak', 'php.old', 'php.zal', 'php.bck', 'php.backup']])
-                tested_files = chain(tested_files, combinations)
-
+        if (url_path):
+            # url_path can be one path or list of paths
+            if isinstance(url_path, str):
+                urls = [url_path + tested_file for tested_file in tested_files]
+            else:
+                tested_files_list = list(tested_files)
+                urls = ([f"{up}{tf}" for up in url_path for tf in tested_files_list])
+        else:
             urls = [self.scheme + "://"+ self.domain + tested_file for tested_file in tested_files]
 
-            with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-                result = list(executor.map(self.check_url, urls, [wordlist] * len(urls), [show_responses] * len(urls), [search_in_response] * len(urls), [method] * len(urls)))
+        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
+            result = list(executor.map(self.check_url, urls, [wordlist] * len(urls), [show_responses] * len(urls), [search_in_response] * len(urls), [method] * len(urls)))
 
         if all(r is None for r in result):
             ptprinthelper.ptprint(f"No {title} discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
@@ -103,22 +91,22 @@ class SourceEnumeration:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
             response = requests.head(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers) if method == "head" else requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
 
-            # Special checks
-            #################
-            pattern = r"(?:in\s+)([a-zA-Z]:\\[\\\w.-]+|/[\w./-]+)"
-            matches: list = re.findall(pattern, response.text, re.IGNORECASE)
-
-            if (wordlist == "fpd") and matches:
-                ptprinthelper.ptprint(f"[{response.status_code}] {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-                ptprint("".join(matches), "ADDITIONS", colortext=True, condition=not self.args.json, end="\n", flush=True, indent=8, clear_to_eol=True)
-                return url
-            else:
-                return
+            if (wordlist == "fpd"):
+                pattern = r"(?:in\s+)([a-zA-Z]:\\[\\\w.-]+|/[\w./-]+)"
+                matches: list = re.findall(pattern, response.text, re.IGNORECASE)
+                if matches:
+                    ptprinthelper.ptprint(f"[{response.status_code}] {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+                    ptprint("".join(matches), "ADDITIONS", colortext=True, condition=not self.args.json, end="\n", flush=True, indent=8, clear_to_eol=True)
+                    return url
+                else:
+                    return
 
             if response.status_code == 200 and search_in_response in response.text.lower():
-                if ((wordlist == "dangerous") and "/wp-admin/maint/repair.php" in url) and ("define('WP_ALLOW_REPAIR', true);".lower() in response.text.lower()):
+
+                if (wordlist == "dangerous") and \
+                   (("/wp-admin/maint/repair.php" in url) and ("define('WP_ALLOW_REPAIR', true);".lower() in response.text.lower())) or \
+                   (("/wp-admin/maint/wp-signup.php" in url) and ("Registration has been disabled".lower() in response.text.lower())):
                     return
-            #################
 
                 ptprinthelper.ptprint(f"[{response.status_code}] {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
                 return url
@@ -196,27 +184,3 @@ class SourceEnumeration:
             write_to_file(filename, '\n'.join(source_urls))
 
         return source_urls
-    
-    def check_directory_listing(self, url_list: list, print_text: bool = True) -> list:
-        """Checks for directory listing, returns list of vulnerable URLs."""
-        ptprint(f"Directory listing", "TITLE", condition=print_text and not self.args.json, newline_above=True, indent=0, colortext=True)
-        vuln_urls = Queue()
-
-        def check_url(url):
-            if not url.endswith("/"):
-                url += "/"
-            ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=print_text and not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            try:
-                response = requests.get(url, timeout=5, proxies=self.args.proxy, verify=False, headers=self.args.headers)
-                if response.status_code == 200 and "index of /" in response.text.lower():
-                    vuln_urls.put(url)  # ✅ Thread-safe zápis
-                    ptprinthelper.ptprint(f"{url}", "VULN", condition=print_text and not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-                else:
-                    ptprinthelper.ptprint(f"{url}", "OK", condition=print_text and not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-            except requests.exceptions.RequestException as e:
-                ptprint(f"Error retrieving response from {url}. Reason: {e}", "ERROR", condition=not self.args.json, indent=4)
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            executor.map(check_url, url_list)
-
-        return list(vuln_urls.queue)

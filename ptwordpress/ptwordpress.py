@@ -143,12 +143,12 @@ class PtWordpress:
         self.SourceFinder.wordlist_discovery("statistics", title="statistics")
         self.SourceFinder.wordlist_discovery("backups", title="backup files or directories")
         self.SourceFinder.wordlist_discovery("repositories", title="repositories")
-        plugins = self.run_plugin_discovery(response=self.base_response)
-        themes = self.run_theme_discovery(response=self.base_response)
-
-        _vuln_urls = self.SourceFinder.check_readme_files(themes=themes, plugins=plugins)
         if self.args.read_me:
-            self.start_readme_dictionary_attack(url=self.BASE_URL, print_title=False, is_vuln=bool(_vuln_urls))
+            self.SourceFinder.wordlist_discovery("readme", title="readme files in root directory")
+        else:
+            self.SourceFinder.wordlist_discovery("readme_small_root", title="readme files in root directory")
+        plugins = self.run_plugin_discovery(response=self.base_response)
+        themes  = self.run_theme_discovery(response=self.base_response)
 
         self.wpscan_api.run(wp_version=self.wp_version, plugins=plugins, themes=themes)
         self.parse_namespaces_from_rest(rest_response=self.rest_response)
@@ -396,7 +396,7 @@ class PtWordpress:
         _theme_paths: list = re.findall(r"([^\"'()]*wp-content\/themes\/)(.*?)(?=[\"')])", response.text, re.IGNORECASE)
         _theme_paths = sorted(_theme_paths, key=lambda x: x[0]) if _theme_paths else _theme_paths # Sort the list by the first element (full_url)
         themes_names = set()
-        path_to_themes = set() # paths used for dictionary attack
+        paths_to_themes = set() # paths used for dictionary attack
         for full_url, relative_path in _theme_paths:
             path_to_theme = full_url.split("/" + relative_path.split("/")[0])[0] + relative_path.split("/")[0]
             if not path_to_theme.startswith("http"): # Relative import 2 absolute, e.g. /wp-content/themes/tm-beans-child/
@@ -404,7 +404,7 @@ class PtWordpress:
                     path_to_theme = "/" + path_to_theme
                 path_to_theme = self.BASE_URL + path_to_theme
 
-            path_to_themes.add(path_to_theme) # e.g. https://example.com/wp-content/themes/coolTheme-new/
+            paths_to_themes.add(path_to_theme) # e.g. https://example.com/wp-content/themes/coolTheme-new
             theme_name = relative_path.split("/")[0]
             themes_names.add(theme_name)
 
@@ -412,23 +412,16 @@ class PtWordpress:
             ptprint(theme_name, "ADDITIONS", condition=not self.args.json, indent=4)
         if not themes_names:
             ptprint("No theme discovered", "OK", condition=not self.args.json, indent=4)
+            return
 
-        # Directory listing test
-        vulnerable_urls = []
-        for url in path_to_themes:
-            result = self.SourceFinder.check_directory_listing(url_list=[url], print_text=False)
-            if result:
-                vulnerable_urls.extend(result)
+        # Directory listing test in all themes
+        self.SourceFinder.wordlist_discovery(["/"], url_path=paths_to_themes, title="directory listing of themes", search_in_response="index of", method="get")
 
-        #if vulnerable_urls:
-        #    ptprint(f" ", "TEXT", condition=not self.args.json)
-
-        for vuln_url in vulnerable_urls:
-            ptprint(f"Theme {vuln_url.split("/")[-2]} ({vuln_url}) is vulnerable to directory listing", "VULN", condition=not self.args.json, indent=4)
-
-        for url in path_to_themes:
-            if self.args.read_me:
-                self.start_readme_dictionary_attack(url, print_title=True)
+        # Readme test in all themes
+        if self.args.read_me:
+            self.SourceFinder.wordlist_discovery("readme", url_path=paths_to_themes, title="readme files of themes")
+        else:
+            self.SourceFinder.wordlist_discovery("readme_small_plugins", title="readme files of themes")
 
         return list(themes_names)
 
@@ -447,7 +440,7 @@ class PtWordpress:
                     path_to_plugin = "/" + path_to_plugin
                 path_to_plugin = self.BASE_URL + path_to_plugin
 
-            paths_to_plugins.add(path_to_plugin) # e.g. https://example.com/wp-content/plugins/gutenberg/
+            paths_to_plugins.add(path_to_plugin) # e.g. https://example.com/wp-content/plugins/gutenberg
             plugin_name = relative_path.split("/")[0]
             full_url = full_url + relative_path
             version = full_url.split('?ver')[-1].split("=")[-1] if "?ver" in full_url else "unknown-version"
@@ -486,67 +479,24 @@ class PtWordpress:
             for url in sorted(set(all_urls)):  # Remove duplicates and sort URLs
                 ptprint(url, "ADDITIONS", condition=not self.args.json, indent=8, colortext=True)
 
-        # Directory listing test
-        vulnerable_urls = []
-        for url in paths_to_plugins:
-            result = self.SourceFinder.check_directory_listing(url_list=[url], print_text=False)
-            if result:
-                vulnerable_urls.extend(result)
+        # Directory listing test in all plugins
+        self.SourceFinder.wordlist_discovery(["/"], url_path=paths_to_plugins, title="directory listing of plugins", search_in_response="index of", method="get")
 
-        if vulnerable_urls:
-            ptprint(f" ", "TEXT", condition=not self.args.json)
-        for vuln_url in vulnerable_urls:
-            ptprint(f"Plugin {vuln_url.split("/")[-2]} ({vuln_url}) is vulnerable to directory listing", "VULN", condition=not self.args.json, indent=4, newline_above=False)
+        # Readme test in all plugins
+        if self.args.read_me:
+            self.SourceFinder.wordlist_discovery("readme", url_path=paths_to_plugins, title="readme files of plugins")
+        else:
+            self.SourceFinder.wordlist_discovery("readme_small_plugins", title="readme files of plugins")
 
-        for url in paths_to_plugins: # https://www.example.com/wp-content/plugins/plugin1/
-            if self.args.read_me:
-                self.start_readme_dictionary_attack(url)
         return list(plugins.keys())
-
 
     def _is_head_method_allowed(self, url) -> bool:
         try:
-            response = requests.head(url + "favicon.ico", proxies=self.args.proxy, verify=False, headers=self.args.headers)
+            response = requests.head(url + "/favicon.ico", proxies=self.args.proxy, verify=False, headers=self.args.headers)
             return True if response.status_code == 200 else False
         except:
             return False
         
-
-    def start_readme_dictionary_attack(self, url, print_title=True, is_vuln=False):
-        """Start Dictionary attack"""
-
-        def check_url(line):
-            """Check URL function"""
-            full_url = f"{url}/{line}"
-            try:
-                ptprinthelper.ptprint(f"{full_url}", "ADDITIONS", not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-                response = requests.request(method="HEAD" if self.head_method_allowed else "GET", url=full_url, verify=False, proxies=self.args.proxy, allow_redirects=False, headers=self.args.headers)
-                if response.status_code == 200:
-                    ptprinthelper.ptprint(response.url, "VULN", not self.args.json, flush=True, indent=4, clear_to_eol=True)
-                    vuln_urls.put(response.url) # Thread safe
-                if response.status_code == 429:
-                    ptprinthelper.ptprint("Too many requests error.", "WARNING", not self.args.json, flush=True, indent=4, clear_to_eol=True)
-            except Exception as e:
-                pass
-
-        if print_title:
-            ptprint(f"Readme discovery: {url}", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True, clear_to_eol=True)
-
-        path_to_wordlist = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "modules", "wordlists", "readme.txt")
-
-        vuln_urls = Queue()
-        with open(path_to_wordlist) as file:
-            wordlist = [line.strip() for line in file.readlines()]
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            executor.map(check_url, wordlist)
-
-        ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, end="\r")
-
-        vuln_urls = list(vuln_urls.queue)
-        if is_vuln is False:
-            ptprinthelper.ptprint(f"No readme files discovered" if not vuln_urls else " ", "OK" if not vuln_urls else "TEXT", not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-
 
     def _process_meta_tags(self):
         ptprinthelper.ptprint(f"Meta tags", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
