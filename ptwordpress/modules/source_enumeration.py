@@ -13,8 +13,10 @@ import ptlibs.tldparser as tldparser
 
 from modules.write_to_file import write_to_file
 
+from modules.http_client import HttpClient
+
 class SourceEnumeration:
-    def __init__(self, base_url, args, ptjsonlib, head_method_allowed: bool):
+    def __init__(self, base_url, args, ptjsonlib, head_method_allowed: bool, target_is_case_sensitive: bool):
         self.args = args
         self.BASE_URL = base_url
         self.REST_URL = base_url + "/wp-json"
@@ -26,6 +28,9 @@ class SourceEnumeration:
         self.tld         = self.extract_result.suffix
         self.scheme      = self.extract_result.scheme
         self.full_domain = f"{self.scheme}://{self.domain}"
+        self.target_is_case_sensitive = target_is_case_sensitive
+
+        self.http_client = HttpClient()
 
     def discover_xml_rpc(self):
         """Discover XML-RPC API"""
@@ -35,10 +40,9 @@ class SourceEnumeration:
           <params></params>
         </methodCall>'''
         ptprinthelper.ptprint(f"Testing for xmlrpc.php availability", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-        response = requests.post(f"{self.BASE_URL}/xmlrpc.php", proxies=self.args.proxy, verify=False, data=xml_data, allow_redirects=False, headers=self.args.headers)
+        response = self.http_client.send_request(f"{self.BASE_URL}/xmlrpc.php", method="POST", data=xml_data, headers=self.args.headers, allow_redirects=False)
         ptprinthelper.ptprint(f"[{response.status_code}] {response.url}", "TEXT", condition=not self.args.json, indent=4)
         ptprinthelper.ptprint(f"Script xmlrpc.php is {'available' if response.status_code == 200 else 'not available'}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
-    
 
     def wordlist_discovery(self, wordlist=None, title="files", url_path=None, show_responses=False, search_in_response="", method=None):
         ptprint(f"{title.capitalize()} discovery", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
@@ -50,6 +54,9 @@ class SourceEnumeration:
                 lines = file.readlines()
         else:
             lines = wordlist
+
+        if not self.target_is_case_sensitive:
+            lines = sorted(set(word.lower() for word in lines))
 
         tested_files = (path.strip() for path in lines if not path.rstrip().endswith('.'))
         tested_files2 = (path.strip() for path in lines if path.rstrip().endswith('.'))
@@ -89,8 +96,7 @@ class SourceEnumeration:
         method = self.head_method_allowed if method is None else method
         try:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = requests.head(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers) if method == "head" else requests.get(url, proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
-
+            response = self.http_client.send_request(url, method="HEAD" if self.head_method_allowed else "GET", headers=self.args.headers, allow_redirects=False)
             if (wordlist == "fpd"):
                 pattern = r"(?:in\s+)([a-zA-Z]:\\[\\\w.-]+|/[\w./-]+)"
                 matches: list = re.findall(pattern, response.text, re.IGNORECASE)
@@ -117,7 +123,6 @@ class SourceEnumeration:
         except requests.exceptions.RequestException as e:
             return
 
-
     def print_media(self, enumerated_users):
         """Print all media discovered via API"""
         def get_user_slug_or_name(user_id):
@@ -131,7 +136,7 @@ class SourceEnumeration:
                 scrapped_media = []
                 url = f"{self.BASE_URL}/wp-json/wp/v2/media?page={page}&per_page=100"
                 ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-                response = requests.get(url, proxies=self.args.proxy, verify=False, headers=self.args.headers)
+                response = self.http_client.send_request(url, method="GET", headers=self.args.headers)
                 if response.status_code == 200 and response.json():
                     for m in response.json():
                         scrapped_media.append({"source_url": m.get("source_url"), "author_id": m.get("author"), "uploaded": m.get("date_gmt"), "modified": m.get("modified_gmt"), "title": m["title"].get("rendered")})
@@ -146,7 +151,8 @@ class SourceEnumeration:
         # Try get & parse Page 1
         ptprinthelper.ptprint(f"Discovered media (title, author, uploaded, modified, url)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         try:
-            response = requests.get(f"{self.BASE_URL}/wp-json/wp/v2/media?page=1&per_page=100", proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
+            response = self.http_client.send_request(f"{self.BASE_URL}/wp-json/wp/v2/media?page=1&per_page=100", method="GET", headers=self.args.headers, allow_redirects=False)
+
             for m in response.json():
                 result.append({"source_url": m.get("source_url"), "author_id": m.get("author"), "uploaded": m.get("date_gmt"), "modified": m.get("modified_gmt"), "title": m.get("title").get("rendered")})
             if response.status_code != 200:
