@@ -48,8 +48,9 @@ from modules.user_enumeration import UserEnumeration
 from modules.source_enumeration import SourceEnumeration
 from modules.wpscan_api import WPScanAPI
 from modules.routes_walker import APIRoutesWalker
-from modules.dual_output import DualOutput
 from modules.plugins.hashes import Hashes
+
+from modules.http_client import HttpClient
 
 import defusedxml.ElementTree as ET
 
@@ -63,7 +64,6 @@ class PtWordpress:
         self.args                        = args
         self.ptjsonlib: object           = ptjsonlib.PtJsonLib()
         self.BASE_URL, self.REST_URL     = self.construct_wp_api_url(args.url)
-        self.wpscan_api: object          = WPScanAPI(args, self.ptjsonlib)
         self.base_response: object       = None
         self.rest_response: object       = None
         self.rss_response: object        = None
@@ -71,6 +71,8 @@ class PtWordpress:
         self.is_enum_protected: bool     = None # Server returns 429 too many requests error
         self.wp_version: str             = None
         self.routes_and_status_codes     = []
+        self.http_client = HttpClient(args=self.args, ptjsonlib=self.ptjsonlib)
+
 
     def parse_google_identifiers(self, response):
         ptprinthelper.ptprint(f"Google identifiers", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
@@ -105,6 +107,21 @@ class PtWordpress:
         ip_address = socket.gethostbyname(hostname)
         return ip_address
 
+    def check_case_sensitivity(self, url):
+        """Returns True if target is case sensitive by testing favicon"""
+        response = self.http_client.send_request(self.BASE_URL + "/favicon.ico", headers=self.args.headers, allow_redirects=True)
+
+        url_to_favicon_uppercase = '/'.join([response.url.rsplit("/", 1)[0], response.url.rsplit("/", 1)[1].upper()]) # Path to favicon coverted to upper case
+        response2 = self.http_client.send_request(url_to_favicon_uppercase, headers=self.args.headers, allow_redirects=False)
+        ptprint(f"Case sensitivity", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
+
+        if response2.status_code == 200:
+            ptprint(f"Target system use no case sensitive OS (Windows)", "TEXT", condition=not self.args.json, indent=4)
+            return False
+        else:
+            ptprint(f"Target system use case sensitive OS (Linux)", "TEXT", condition=not self.args.json, indent=4)
+            return True
+
     def run(self, args) -> None:
         """Main method"""
         self.base_response: object = self._get_base_response(url=self.BASE_URL)
@@ -112,11 +129,16 @@ class PtWordpress:
         self.check_if_target_is_wordpress(base_response=self.base_response, wp_json_response=None)
         self.is_cloudflare = self.check_if_behind_cloudflare(base_response=self.base_response)
 
+        self.head_method_allowed: bool      = self._is_head_method_allowed(url=self.BASE_URL)
+        self.target_is_case_sensitive: bool = self.check_case_sensitivity(url=self.BASE_URL)
 
-        self.head_method_allowed: bool   = self._is_head_method_allowed(url=self.BASE_URL)
-        self.SourceFinder: object        = SourceEnumeration(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
+        self.SourceFinder: object        = SourceEnumeration(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed, self.target_is_case_sensitive)
         self.UserEnumerator: object      = UserEnumeration(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
+        self.wpscan_api: object          = WPScanAPI(args, self.ptjsonlib)
         self.email_scraper               = get_emails_instance(args=self.args)
+
+        #self.UserEnumerator.run()
+        #self.SourceFinder.wordlist_discovery("readme", title="readme files in root directory")
 
         self.print_meta_tags(response=self.base_response)
         self.parse_site_info_from_rest(rest_response=self.rest_response)
@@ -168,31 +190,13 @@ class PtWordpress:
         ptprinthelper.ptprint(self.ptjsonlib.get_result_json(), "", self.args.json)
 
     def fetch_responses_in_parallel(self):
-        """Funkce pro paralelní načítání odpovědí s ošetřením chyb"""
-
-        def loading_indicator(stop_event):
-            """Funkce pro zobrazení točícího se znaku"""
-            if self.args.json:
-                return
-            loading_chars = "|/-\\"
-            while not stop_event.is_set():
-                for char in loading_chars:
-                    sys.stdout.write(f"\r[{char}] Loading .. ")
-                    sys.stdout.flush()
-                    time.sleep(0.1)
-            sys.stdout.write("\r" + " " * 20 + "\r")
-
         def fetch_response_with_error_handling(future, url):
-            """Funkce pro získání výsledku requestu s ošetřením chyb"""
             try:
                 return future.result()
             except Exception as e:
                 print(f"Error fetching {url}: {e}")
                 return None
 
-        #stop_event = threading.Event()
-        #loader_thread = threading.Thread(target=loading_indicator, args=(stop_event,), daemon=True)
-        #loader_thread.start()
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
             future_rest = executor.submit(self._get_wp_json, url=self.REST_URL)                                                  # example.com/wp-json/
             future_rss = executor.submit(requests.get, self.BASE_URL + "/feed", proxies=self.args.proxy, verify=False, headers=self.args.headers)           # example.com/feed
@@ -200,8 +204,7 @@ class PtWordpress:
             rest_response = fetch_response_with_error_handling(future_rest, self.REST_URL)
             rss_response = fetch_response_with_error_handling(future_rss, self.BASE_URL + "/feed")
             robots_txt_response = fetch_response_with_error_handling(future_robots, self.BASE_URL + "/robots.txt")
-        #stop_event.set()
-        #loader_thread.join()
+
         return rest_response, rss_response, robots_txt_response
 
     def print_supported_versions(self, wp_version):
@@ -315,11 +318,11 @@ class PtWordpress:
     def get_wordpress_version(self):
         """Retrieve wordpress version from metatags, rss feed, API, ... """
         ptprint(f"Wordpress version", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
-        svg_badge_response = requests.head(f"{self.BASE_URL}/wp-admin/images/about-release-badge.svg", verify=False, proxies=self.args.proxy, allow_redirects=False, headers=self.args.headers)
+        svg_badge_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-admin/images/about-release-badge.svg", method=("HEAD" if self._is_head_method_allowed else "GET"), allow_redirects=False, headers=self.args.headers)
         if svg_badge_response.status_code == 200:
             ptprinthelper.ptprint(f"{svg_badge_response.url}", "VULN", condition=not self.args.json, colortext=False, indent=4)
 
-        opml_response = requests.get(f"{self.BASE_URL}/wp-links-opml.php", verify=False, proxies=self.args.proxy, allow_redirects=False, headers=self.args.headers)
+        opml_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-links-opml.php", method="GET", allow_redirects=False, headers=self.args.headers)
         if opml_response.status_code == 200:
             wp_version = re.findall(r"WordPress.*(\d\.\d\.[\d.]+)", opml_response.text)
             if wp_version:
@@ -345,7 +348,7 @@ class PtWordpress:
                 ptprint(f"The metatag 'generator' does not provide version of WordPress", "OK", condition=not self.args.json, indent=4)
 
         if self.base_response:
-            """TODO: Verze z URL adres ve zdrojovém kódu (zde je někdy uvedena verze WP a jindy verze pluginu, je potřeba vymyslet, jak to rozlišit)"""
+            # TODO: Check WP version from source code. Sometimes, plugin version instead of wordpress version can be detected.
             pass
 
         if self.rss_response:
@@ -353,7 +356,8 @@ class PtWordpress:
             result = self.get_wp_version_from_rss_feed(response=self.rss_response)
             self.wp_version = result if result else self.wp_version
 
-        # TODO: Pokud víš o dalších metodách, tak i ty….
+        # TODO: If you know about more methods, add them ...
+
         return self.wp_version
 
     def print_robots_txt(self, robots_txt_response):
@@ -369,10 +373,10 @@ class PtWordpress:
             return True
 
     def process_sitemap(self, robots_txt_response):
-        """Sitemap tests"""
+        """Test sitemap"""
         ptprint(f"Sitemap", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
         try:
-            sitemap_response = requests.get(self.BASE_URL + "/sitemap.xml", allow_redirects=False, proxies=self.args.proxy, verify=False, headers=self.args.headers)
+            sitemap_response = self.http_client.send_request(self.BASE_URL + "/sitemap.xml", allow_redirects=False, headers=self.args.headers)
             if sitemap_response.status_code == 200:
                 ptprint(f"Sitemap exists: {sitemap_response.url}", "OK", condition=not self.args.json, indent=4)
             elif sitemap_response.is_redirect:
@@ -382,6 +386,7 @@ class PtWordpress:
         except requests.exceptions.RequestException:
             ptprint(f"Error retrieving sitemap from {self.BASE_URL + '/sitemap.xml'}", "WARNING", condition=not self.args.json, indent=4)
 
+        # Process robots.txt sitemaps
         if robots_txt_response.status_code == 200:
             _sitemap_url: list = re.findall(r"Sitemap:(.*)\b", self.robots_txt_response.text, re.IGNORECASE)
             if _sitemap_url:
@@ -392,7 +397,6 @@ class PtWordpress:
     def run_theme_discovery(self, response) -> list:
         """Theme discovery"""
         ptprinthelper.ptprint(f"Theme discovery ", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-        #_theme_paths: list = re.findall(r"(?<=[\"'])([^\"']*wp-content/themes/(.*?))(?=[\"'])", response.text, re.IGNORECASE)
         _theme_paths: list = re.findall(r"([^\"'()]*wp-content\/themes\/)(.*?)(?=[\"')])", response.text, re.IGNORECASE)
         _theme_paths = sorted(_theme_paths, key=lambda x: x[0]) if _theme_paths else _theme_paths # Sort the list by the first element (full_url)
         themes_names = set()
@@ -492,11 +496,10 @@ class PtWordpress:
 
     def _is_head_method_allowed(self, url) -> bool:
         try:
-            response = requests.head(url + "/favicon.ico", proxies=self.args.proxy, verify=False, headers=self.args.headers)
+            response = self.http_client.send_request(url=f"{self.BASE_URL}/favicon.ico", method="HEAD", allow_redirects=True, headers=self.args.headers)
             return True if response.status_code == 200 else False
         except:
             return False
-        
 
     def _process_meta_tags(self):
         ptprinthelper.ptprint(f"Meta tags", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
@@ -509,7 +512,6 @@ class PtWordpress:
                 ptprinthelper.ptprint(f"{tag.get('content')}", "TEXT", condition=not self.args.json, colortext=False, indent=4)
         else:
             ptprinthelper.ptprint(f"Found none", "TEXT", condition=not self.args.json, colortext=False, indent=4)
-
 
     def parse_routes_into_nodes(self, url: str) -> list:
         rest_url = self.REST_URL
@@ -533,7 +535,6 @@ class PtWordpress:
             self.ptjsonlib.add_nodes(nodes_to_add)
 
         return routes_to_test
-    
 
     def update_status_code_in_nodes(self):
         if self.use_json:
@@ -594,11 +595,10 @@ class PtWordpress:
 
     def check_if_target_is_wordpress(self, base_response: object, wp_json_response: object) -> bool:
         """Checks if target runs wordpress, if not script will be terminated."""
-
         if not any(substring in base_response.text.lower() for substring in ["wp-content/", "wp-includes/", "wp-json/"]):
             ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, indent=0)
             try:
-                response = requests.get(self.BASE_URL + "/wp-content/", proxies=self.args.proxy, verify=False, allow_redirects=False, headers=self.args.headers)
+                response = self.http_client.send_request(self.BASE_URL + "/wp-content/", headers=self.args.headers, allow_redirects=False)
                 if response.status_code != 404:
                     self.ptjsonlib.end_error(f"WordPress discovered but target URL is not posible to test. Check for redirect and try another URL.", self.args.json)
             except requests.exceptions.RequestException:
@@ -640,7 +640,6 @@ class PtWordpress:
             return response
         except:
             return None
-            #self.ptjsonlib.end_error(f"Not a wordpress site or wp-json disabled.", self.args.json)
 
     def _get_base_response(self, url):
         """Retrieve base response and handle initial redirects"""
@@ -678,16 +677,15 @@ class PtWordpress:
 
     def handle_redirect(self, response, args):
         if not self.args.json:
-            if True: #self._yes_no_prompt(f"[{response.status_code}] Returned response redirects to {response.headers.get('location', '?')}, follow?"):
-                ptprint(f"[{response.status_code}] Returned response redirects to {response.headers.get('location', '?')}, following...", "INFO", not self.args.json, end="", flush=True, newline_above=True)
-                ptprint("\n", condition=not self.args.json, end="\n")
-                args.redirects = True
-                self.BASE_URL = response.headers.get("location")[:-1] if response.headers.get("location").endswith("/") else response.headers.get("location")
-                self.BASE_URL = urllib.parse.urlparse(self.BASE_URL)._replace(path='', query='', fragment='').geturl() # Strip path
-                self.REST_URL = self.BASE_URL + "/wp-json"
-                self.args = args
-                self.run(args=self.args)
-                sys.exit(0) # Recurse exit.
+            ptprint(f"[{response.status_code}] Returned response redirects to {response.headers.get('location', '?')}, following...", "INFO", not self.args.json, end="", flush=True, newline_above=True)
+            ptprint("\n", condition=not self.args.json, end="\n")
+            args.redirects = True
+            self.BASE_URL = response.headers.get("location")[:-1] if response.headers.get("location").endswith("/") else response.headers.get("location")
+            self.BASE_URL = urllib.parse.urlparse(self.BASE_URL)._replace(path='', query='', fragment='').geturl() # Strip path
+            self.REST_URL = self.BASE_URL + "/wp-json"
+            self.args = args
+            self.run(args=self.args)
+            sys.exit(0) # Recurse exit.
 
 def get_help():
     return [
@@ -774,7 +772,6 @@ def parse_args():
 
     args.timeout = args.timeout if not args.proxy else None
     args.proxy = {"http": args.proxy, "https": args.proxy} if args.proxy else None
-    #args.user_agent  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.6533.100 Safari/537.36"
     args.headers = ptnethelper.get_request_headers(args)
     if args.output:
         args.output = os.path.abspath(args.output)
