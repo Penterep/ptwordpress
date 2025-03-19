@@ -52,6 +52,8 @@ from modules.plugins.hashes import Hashes
 
 from modules.http_client import HttpClient
 
+from modules.helpers import print_api_is_not_available
+
 import defusedxml.ElementTree as ET
 
 from bs4 import BeautifulSoup, Comment
@@ -567,7 +569,7 @@ class PtWordpress:
                 raise Exception
             return rest_response.json()
         except Exception as e:
-            ptprinthelper.ptprint(f"API is not available", "WARNING", condition=not self.args.json, indent=4)
+            print_api_is_not_available(status_code=getattr(response, "status_code", None))
 
     def parse_site_info_from_rest(self, rest_response):
         ptprinthelper.ptprint(f"Site info", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
@@ -576,7 +578,7 @@ class PtWordpress:
             if rest_response is not None and rest_response.status_code != 200:
                 raise Exception
         except Exception as e:
-            ptprinthelper.ptprint(f"API is not available", "WARNING", condition=not self.args.json, indent=4)
+            print_api_is_not_available(status_code=getattr(response, "status_code", None))
             return
 
         rest_response = rest_response.json()
@@ -707,6 +709,7 @@ def get_help():
             ["-p",  "--proxy",                  "<proxy>",              "Set Proxy"],
             ["-c",  "--cookie",                 "<cookie>",             "Set Cookie"],
             ["-a", "--user-agent",              "<agent>",              "Set User-Agent"],
+            ["-d", "--delay",                   "<miliseconds>",        "Set delay before each request"],
             ["-ar", "--author-range",           "<author-range>",       "Set custom range for author enumeration (e.g. 1000-1300)"],
             ["-wu", "--wordlist-users",         "<user_wordlist>",      "Set Custom wordlist for user enumeration"],
             #["-wu", "--wordlist-users",         "<plugin_wordlist>",   "Set Custom wordlist for plugin enumeration"],

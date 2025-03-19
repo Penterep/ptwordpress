@@ -17,6 +17,8 @@ from modules.plugins.emails import Emails, get_emails_instance
 
 from modules.http_client import HttpClient
 
+from modules.helpers import print_api_is_not_available
+
 class UserEnumeration:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed):
         self.ptjsonlib = ptjsonlib
@@ -132,7 +134,7 @@ class UserEnumeration:
             else:
                 break
         if not is_vuln:
-            ptprinthelper.ptprint(f"API is not available [{response.status_code}]", "WARNING", condition=not self.args.json, indent=4)
+            print_api_is_not_available(status_code=getattr(response, "status_code", None))
 
     def _enumerate_users_by_posts(self):
         """Enumerate users via https://example.com/wp-json/wp/v2/posts/?per_page=100&page=<number> endpoint"""
@@ -153,8 +155,13 @@ class UserEnumeration:
             except Exception as e:
                 return []
 
+        response = self.http_client.send_request(url, method="GET", headers=self.args.headers)
+        if response.status_code != 200:
+            print_api_is_not_available(status_code=getattr(response, "status_code", None))
+            return
+
         with ThreadPoolExecutor(max_workers=5) as executor:
-            for page in range(1, 999, 5):
+            for page in range(2, 999, 5):
                 pages = list(executor.map(fetch_page, range(page, page + 5)))
                 all_posts.extend([post for page in pages if page for post in page])
 
@@ -182,7 +189,6 @@ class UserEnumeration:
                 self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, user)
         else:
             ptprinthelper.ptprint(f"No users discovered", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
-
 
     def _enumerate_users_by_author_id(self) -> list:
         """Enumerate users via /?author=<id> query."""
@@ -324,7 +330,7 @@ class UserEnumeration:
             if not creators:
                 ptprinthelper.ptprint(f"No authors discovered via RSS feed", "OK", condition=not self.args.json, indent=4)
         else:
-            ptprinthelper.ptprint(f"API is not available [{response.status_code}]", "WARNING", condition=not self.args.json, indent=4)
+            print_api_is_not_available(status_code=getattr(response, "status_code", None))
 
     def parse_feed(self, response):
         rss_authors = set()

@@ -15,6 +15,8 @@ from modules.write_to_file import write_to_file
 
 from modules.http_client import HttpClient
 
+from modules.helpers import print_api_is_not_available
+
 class SourceEnumeration:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed: bool, target_is_case_sensitive: bool):
         self.args = args
@@ -158,7 +160,7 @@ class SourceEnumeration:
             if response.status_code != 200:
                 raise ValueError
         except Exception as e:
-            ptprinthelper.ptprint(f"API is not available [{response.status_code}]", "WARNING", condition=not self.args.json, indent=4)
+            print_api_is_not_available(status_code=getattr(response, "status_code", None))
             return
 
         # Try get a parse Page 2-99
