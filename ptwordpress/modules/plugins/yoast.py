@@ -70,7 +70,7 @@ class YoastScraper:
                     if result:
                         return result
 
-            return None
+            return []
         except Exception as e:
-            print(f"Chyba: {e}")
-            return None
+            #print(f"Chyba: {e}")
+            return []
