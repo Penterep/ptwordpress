@@ -3,16 +3,18 @@ from tqdm import tqdm
 import requests
 import os
 from ptlibs import ptprinthelper
+from modules.http_client import HttpClient
 
 class MediaDownloader:
     def __init__(self, args):
         self.args = args
         self.save_path = os.path.abspath(self.args.save_media)
         os.makedirs(self.save_path, exist_ok=True)
+        self.http_client = HttpClient()
 
     def _download_file(self, url):
         try:
-            response = requests.get(url, stream=True, headers=self.args.headers, verify=False, proxies=self.args.proxy)
+            response = self.http_client.send_request(url, method="GET", headers=self.args.headers, stream=True)
             response.raise_for_status()
             filename = url.split("/")[-1]
             with open(os.path.join(self.save_path, filename), "wb") as file:

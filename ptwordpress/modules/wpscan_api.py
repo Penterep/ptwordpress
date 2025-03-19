@@ -2,6 +2,8 @@ import requests
 import json
 from ptlibs.ptprinthelper import ptprint
 
+from modules.http_client import HttpClient
+
 class WPScanAPI:
     def __init__(self, args, ptjsonlib):
         self.args = args
@@ -10,6 +12,7 @@ class WPScanAPI:
         self.API_KEY = args.wpscan_key
         self.headers = {}
         self.headers.update({"Authorization": f"Token token={args.wpscan_key}"})
+        self.http_client = HttpClient()
 
     def run(self, wp_version: str, plugins: list, themes: list):
         ptprint(f"WPScan:", "INFO", not self.args.json, colortext=True, newline_above=True)
@@ -124,7 +127,6 @@ class WPScanAPI:
                 if index+1 != len(response_data.get("vulnerabilities", [])):
                     ptprint(" ", "TEXT", condition=not self.args.json)
 
-
     def get_user_status_plan(self):
         url = self.API_URL + "/status"
         response = self.send_request(url=url)
@@ -132,7 +134,7 @@ class WPScanAPI:
 
     def send_request(self, url: str, data: dict = {}):
         try:
-            response = requests.get(url, headers=self.headers, proxies=self.args.proxy, verify=False)
+            response = self.http_client.send_request(url, method="GET", headers=self.args.headers)
             return response
         except Exception as e:
             pass
