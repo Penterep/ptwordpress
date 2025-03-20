@@ -44,7 +44,7 @@ class UserEnumeration:
         self._enumerate_users_by_author_name()        # example.com/author/<author> (dictionary attack)
         self._enumerate_users_by_author_id()          # example.com/?author=<id> (range attack)
         self.enumerate_by_users()                     # example.com/wp-json/wp/v2/users?page=<id>&per_page=100
-        self._enumerate_users_by_posts()
+        self.scrape_users_by_posts()
         self.print_enumerated_users_table()
         self.print_unique_logins()
         #self.print_vulnerable_endpoints()
@@ -136,8 +136,8 @@ class UserEnumeration:
         if not is_vuln:
             print_api_is_not_available(status_code=getattr(response, "status_code", None))
 
-    def _enumerate_users_by_posts(self):
-        """Enumerate users via https://example.com/wp-json/wp/v2/posts/?per_page=100&page=<number> endpoint"""
+    def scrape_users_by_posts(self):
+        """Retrieve users via /wp-json/wp/v2/posts/?per_page=100&page=<number> endpoint"""
         ptprinthelper.ptprint(f"User enumeration via API posts ({self.BASE_URL}/wp-json/wp/v2/posts)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         enumerated_users = []
         all_posts = []
@@ -155,11 +155,14 @@ class UserEnumeration:
             except Exception as e:
                 return []
 
-        response = self.http_client.send_request(url, method="GET", headers=self.args.headers)
+        # Request to first page
+        response = self.http_client.send_request(url=f"{self.REST_URL}/wp/v2/posts/?per_page=100&page=1", method="GET", headers=self.args.headers)
+        all_posts.extend(response.json())
         if response.status_code != 200:
             print_api_is_not_available(status_code=getattr(response, "status_code", None))
             return
 
+        # Scrape rest of pages
         with ThreadPoolExecutor(max_workers=5) as executor:
             for page in range(2, 999, 5):
                 pages = list(executor.map(fetch_page, range(page, page + 5)))
