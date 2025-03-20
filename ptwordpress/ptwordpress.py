@@ -194,7 +194,6 @@ class PtWordpress:
             try:
                 return self.http_client.send_request(url=url, method="GET")
             except Exception as e:
-                #print(f"Error fetching {url}: {e}")
                 return None
 
         urls = {
@@ -547,9 +546,9 @@ class PtWordpress:
 
 
     def parse_namespaces_from_rest(self, rest_response):
-        ptprinthelper.ptprint(f"Namespaces (API provided by addons)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         if not self.try_parse_response_json(rest_response=rest_response):
             return
+        ptprinthelper.ptprint(f"Namespaces (API provided by addons)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         rest_response = rest_response.json()
         namespaces = rest_response.get("namespaces", [])
         with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "modules", "wordlists", "plugin_list.csv"), mode='r') as file:
@@ -661,21 +660,6 @@ class PtWordpress:
                     return f"- {row[1]}"
         return ""
 
-    def _yes_no_prompt(self, message) -> bool:
-        if self.args.json:
-            return
-
-        ptprint(" ", "", not self.args.json)
-        ptprint(message + " Y/n", "WARNING", not self.args.json, end="", flush=True)
-
-        action = input(" ").upper().strip()
-
-        if action == "Y":
-            return True
-        elif action == "N" or action.startswith("N"):
-            return False
-        else:
-            return True
 
     def handle_redirect(self, response, args):
         if not self.args.json:
