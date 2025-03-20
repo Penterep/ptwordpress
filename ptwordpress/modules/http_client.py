@@ -1,5 +1,5 @@
-"""Helpers"""
 import requests
+import time
 
 class HttpClient:
     _instance = None
@@ -20,6 +20,7 @@ class HttpClient:
             self.args = args
             self.ptjsonlib = ptjsonlib
             self.proxy = self.args.proxy
+            self.delay = getattr(self.args, 'delay', 0)
             self.initialized = True  # Flag to indicate that initialization is complete
 
     def send_request(self, url, method="GET", *, headers=None, data=None, allow_redirects=True, **kwargs):
@@ -30,8 +31,12 @@ class HttpClient:
         except Exception as e:
             # Re-raise the original exception with some additional context
             raise requests.RequestException(f"Request failed: {e}") from e
-            raise #requests.RequestException(f"Request failed: {e}") from e
             #return None
+        finally:
+            # Apply delay if set
+            if self.delay > 0:
+                time.sleep(self.delay / 1000)  # Convert ms to seconds
+
 
     def is_valid_url(self, url):
         # A basic regex to validate the URL format

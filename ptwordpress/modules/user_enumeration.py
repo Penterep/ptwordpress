@@ -163,7 +163,7 @@ class UserEnumeration:
             return
 
         # Scrape rest of pages
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
             for page in range(2, 999, 5):
                 pages = list(executor.map(fetch_page, range(page, page + 5)))
                 all_posts.extend([post for page in pages if page for post in page])

@@ -139,9 +139,6 @@ class PtWordpress:
         self.wpscan_api: object          = WPScanAPI(args, self.ptjsonlib)
         self.email_scraper               = get_emails_instance(args=self.args)
 
-        #self.UserEnumerator.run()
-        #self.SourceFinder.wordlist_discovery("readme", title="readme files in root directory")
-
         self.print_meta_tags(response=self.base_response)
         self.parse_site_info_from_rest(rest_response=self.rest_response)
         self.hashes = Hashes(args)
@@ -192,21 +189,24 @@ class PtWordpress:
         ptprinthelper.ptprint(self.ptjsonlib.get_result_json(), "", self.args.json)
 
     def fetch_responses_in_parallel(self):
-        def fetch_response_with_error_handling(future, url):
+
+        def fetch(url):
             try:
-                return future.result()
+                return self.http_client.send_request(url=url, method="GET")
             except Exception as e:
-                print(f"Error fetching {url}: {e}")
+                #print(f"Error fetching {url}: {e}")
                 return None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            future_rest = executor.submit(self._get_wp_json, url=self.REST_URL)                                                  # example.com/wp-json/
-            future_rss = executor.submit(requests.get, self.BASE_URL + "/feed", proxies=self.args.proxy, verify=False, headers=self.args.headers)           # example.com/feed
-            future_robots = executor.submit(requests.get, self.BASE_URL + "/robots.txt", proxies=self.args.proxy, verify=False, headers=self.args.headers)  # example.com/robots.txt
-            rest_response = fetch_response_with_error_handling(future_rest, self.REST_URL)
-            rss_response = fetch_response_with_error_handling(future_rss, self.BASE_URL + "/feed")
-            robots_txt_response = fetch_response_with_error_handling(future_robots, self.BASE_URL + "/robots.txt")
+        urls = {
+            "rest": self.REST_URL,
+            "rss": self.BASE_URL + "/feed",
+            "robots": self.BASE_URL + "/robots.txt",
+        }
 
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
+            futures = {name: executor.submit(fetch, url) for name, url in urls.items()}
+            responses = {name: future.result() for name, future in futures.items()}
+            return responses["rest"], responses["rss"], responses["robots"]
         return rest_response, rss_response, robots_txt_response
 
     def print_supported_versions(self, wp_version):
@@ -763,7 +763,7 @@ def parse_args():
     parser.add_argument("-C",  "--cache",            action="store_true")
     parser.add_argument("-j",  "--json",             action="store_true")
     parser.add_argument("-v",  "--version",          action='version', version=f'{SCRIPTNAME} {__version__}')
-
+    parser.add_argument("--delay",                   type=float, default=0, help="Delay between requests in seconds")
     parser.add_argument("--socket-address",          type=str, default=None)
     parser.add_argument("--socket-port",             type=str, default=None)
     parser.add_argument("--process-ident",           type=str, default=None)
@@ -776,6 +776,7 @@ def parse_args():
     args.timeout = args.timeout if not args.proxy else None
     args.proxy = {"http": args.proxy, "https": args.proxy} if args.proxy else None
     args.headers = ptnethelper.get_request_headers(args)
+    args.threads = 1 if args.delay != 0 else args.threads # Run in one thread if delay parameter provided.
     if args.output:
         args.output = os.path.abspath(args.output)
 
