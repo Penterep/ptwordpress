@@ -17,7 +17,7 @@ from modules.http_client import HttpClient
 
 from modules.helpers import print_api_is_not_available
 
-class SourceEnumeration:
+class SourceDiscovery:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed: bool, target_is_case_sensitive: bool):
         self.args = args
         self.BASE_URL = base_url
@@ -48,7 +48,6 @@ class SourceEnumeration:
 
     def wordlist_discovery(self, wordlist=None, title="files", url_path=None, show_responses=False, search_in_response="", method=None):
         ptprint(f"{title.capitalize()} discovery", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
-
         # Variable wordlist can be filename or list of files
         if isinstance(wordlist, str):
             wordlist_file = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", f"{wordlist}.txt")
@@ -95,10 +94,10 @@ class SourceEnumeration:
 
 
     def check_url(self, url, wordlist=None, show_responses=False, search_in_response="", method=None):
-        method = self.head_method_allowed if method is None else method
+        method = method or ("HEAD" if self.head_method_allowed else "GET")
         try:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = self.http_client.send_request(url, method="HEAD" if self.head_method_allowed else "GET", headers=self.args.headers, allow_redirects=False)
+            response = self.http_client.send_request(url, method=method, headers=self.args.headers, allow_redirects=False)
             if (wordlist == "fpd"):
                 pattern = r"(?:in\s+)([a-zA-Z]:\\[\\\w.-]+|/[\w./-]+)"
                 matches: list = re.findall(pattern, response.text, re.IGNORECASE)
@@ -110,7 +109,6 @@ class SourceEnumeration:
                     return
 
             if response.status_code == 200 and search_in_response in response.text.lower():
-
                 if (wordlist == "dangerous") and \
                    (("/wp-admin/maint/repair.php" in url) and ("define('WP_ALLOW_REPAIR', true);".lower() in response.text.lower())) or \
                    (("/wp-admin/maint/wp-signup.php" in url) and ("Registration has been disabled".lower() in response.text.lower())):
@@ -192,3 +190,92 @@ class SourceEnumeration:
             write_to_file(filename, '\n'.join(source_urls))
 
         return source_urls
+
+
+    def run_discovery(self, response, content_type) -> list:
+        """General discovery for theme or plugin."""
+        if content_type == "theme":
+            ptprinthelper.ptprint("Theme discovery", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+            pattern = r"([^\"'()]*wp-content\/themes\/)(.*?)(?=[\"')])"
+        elif content_type == "plugin":
+            ptprinthelper.ptprint("Plugin discovery", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+            pattern = r"([^\"'()]*wp-content\/plugins\/)(.*?)(?=[\"')])"
+        else:
+            raise ValueError("Invalid content_type specified. Use 'theme' or 'plugin'.")
+
+        paths = re.findall(pattern, response.text, re.IGNORECASE)
+        paths = sorted(paths, key=lambda x: x[0]) if paths else paths
+        names = set()
+        paths_to_resources = set()
+        resources = {}
+
+        for full_url, relative_path in paths:
+            path_to_resource = full_url.split("/" + relative_path.split("/")[0])[0] + relative_path.split("/")[0]
+
+            if not path_to_resource.startswith("http"):
+                if not path_to_resource.startswith("/"):
+                    path_to_resource = "/" + path_to_resource
+                path_to_resource = self.BASE_URL + path_to_resource
+
+            paths_to_resources.add(path_to_resource)
+            resource_name = relative_path.split("/")[0]
+            names.add(resource_name)
+
+            # Handle plugin versions (for plugins only)
+            if content_type == "plugin":
+                version = relative_path.split('?ver')[-1].split("=")[-1] if "?ver" in relative_path else "unknown-version"
+                if resource_name not in resources:
+                    resources[resource_name] = {}
+                if version not in resources[resource_name]:
+                    resources[resource_name][version] = []
+                resources[resource_name][version].append(full_url + relative_path)
+
+        # Perform discovery for resources
+        if not names:
+            ptprint(f"No {content_type} discovered", "OK", condition=not self.args.json, indent=4)
+            return []
+
+        if content_type == "plugin":
+            self.print_plugin_versions(resources)
+
+        if content_type == "theme":
+            ptprint('\n    '.join(names), "TEXT", condition=not self.args.json, indent=4)
+
+        # Directory listing test in all resources
+        self.wordlist_discovery(["/"], url_path=paths_to_resources, title=f"directory listing of {content_type}s", search_in_response="index of", method="get")
+
+        # Readme test in all resources
+        if self.args.read_me:
+            self.wordlist_discovery("readme", url_path=paths_to_resources, title=f"readme files of {content_type}s")
+        else:
+            self.wordlist_discovery("readme_small_plugins", title=f"readme files of {content_type}s")
+
+        return list(names)
+
+
+    def print_plugin_versions(self, resources):
+        """Helper function to print the plugin versions."""
+        for plugin_name, versions in resources.items():
+            version_list = [version for version in versions.keys() if version != "unknown-version"]
+
+            version_pattern = re.compile(r'^\d+(\.\d+)*$')
+            valid_versions = [v for v in version_list if version_pattern.match(v)] # [4.2.1, 2.2.2, 1.2.3]
+            invalid_versions = [v for v in version_list if not version_pattern.match(v)] # ["foobarhashversion"]
+
+            # Sort valid versions
+            valid_versions.sort(key=lambda v: tuple(map(int, v.split('.'))))
+
+            if not any([valid_versions, invalid_versions]):
+                valid_versions = ["unknown-version"]
+
+            # Result list, valid first, invalid last
+            sorted_version_list = valid_versions + invalid_versions
+            version_string = ", ".join(sorted_version_list)
+            ptprint(f"{plugin_name} ({version_string})", "TEXT", condition=not self.args.json, indent=4)
+
+            all_urls = []
+            for version_urls in versions.values():
+                all_urls.extend(version_urls)  # Collect all URLs from different versions
+
+            for url in sorted(set(all_urls)):  # Remove duplicates and sort URLs
+                ptprint(url, "ADDITIONS", condition=not self.args.json, indent=8, colortext=True)

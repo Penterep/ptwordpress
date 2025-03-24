@@ -19,7 +19,7 @@ from modules.http_client import HttpClient
 
 from modules.helpers import print_api_is_not_available
 
-class UserEnumeration:
+class UserDiscovery:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed):
         self.ptjsonlib = ptjsonlib
         self.args = args
@@ -157,10 +157,11 @@ class UserEnumeration:
 
         # Request to first page
         response = self.http_client.send_request(url=f"{self.REST_URL}/wp/v2/posts/?per_page=100&page=1", method="GET", headers=self.args.headers)
-        all_posts.extend(response.json())
         if response.status_code != 200:
             print_api_is_not_available(status_code=getattr(response, "status_code", None))
             return
+
+        all_posts.extend(response.json())
 
         # Scrape rest of pages
         with ThreadPoolExecutor(max_workers=self.args.threads) as executor:

@@ -4,6 +4,7 @@ class APIRoutesWalker:
         self.ptjsonlib = ptjsonlib
         self.rest_response = rest_response
         self.rest_url = rest_response.url
+        self.routes_and_status_codes = []
 
     def run(self):
         routes: dict = self.get_routes_to_test(self.rest_response.json().get("routes"))
@@ -39,3 +40,10 @@ class APIRoutesWalker:
             self.ptjsonlib.add_nodes(nodes_to_add)
 
         return routes_to_test
+
+    def update_status_code_in_nodes(self):
+        if self.use_json:
+            for dict_ in self.routes_and_status_codes:
+                for node in self.ptjsonlib.json_object["results"]["nodes"]:
+                    if node["key"] == dict_["id"]:
+                        node["properties"].update({"status_code": dict_["status_code"]})
