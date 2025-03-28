@@ -46,8 +46,13 @@ class SourceDiscovery:
         ptprinthelper.ptprint(f"[{response.status_code}] {response.url}", "TEXT", condition=not self.args.json, indent=4)
         ptprinthelper.ptprint(f"Script xmlrpc.php is {'available' if response.status_code == 200 else 'not available'}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
 
+    def discover_trackback(self):
+        """Test wp-trackback.php"""
+        pass
+
     def wordlist_discovery(self, wordlist=None, title="files", url_path=None, show_responses=False, search_in_response="", method=None):
         ptprint(f"{title.capitalize()} discovery", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
+
         # Variable wordlist can be filename or list of files
         if isinstance(wordlist, str):
             wordlist_file = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", f"{wordlist}.txt")
@@ -245,7 +250,7 @@ class SourceDiscovery:
         self.wordlist_discovery(["/"], url_path=paths_to_resources, title=f"directory listing of {content_type}s", search_in_response="index of", method="get")
 
         # Readme test in all resources
-        if self.args.read_me:
+        if self.args.readme:
             self.wordlist_discovery("readme", url_path=paths_to_resources, title=f"readme files of {content_type}s")
         else:
             self.wordlist_discovery("readme_small_plugins", title=f"readme files of {content_type}s")

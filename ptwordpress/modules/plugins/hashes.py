@@ -1,6 +1,7 @@
 from ptlibs import ptprinthelper
 import hashlib
 import requests
+import tempfile
 
 class Hashes:
     _instance = None
@@ -15,8 +16,7 @@ class Hashes:
         self.args = args
 
     def get_hashes_from_favicon(self, response = None):
-        favicon_data = response.content
-        hashes: dict = self.calculate_hashes(favicon_data)
+        hashes: dict = self.calculate_hashes(response.content)
 
         ptprinthelper.ptprint("Favicon.ico hashes (etag)", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
         for hash_type, hash_value in hashes.items():
@@ -30,6 +30,22 @@ class Hashes:
         }
         return hashes
 
-def get_emails_instance(args):
-    return Emails(args)
+    def process_image_response(self, response):
+        # Use NamedTemporaryFile with delete=True inside a context manager
+        with tempfile.NamedTemporaryFile(delete=True) as temp_file:
+            # Write the response content directly to the temporary file
+            temp_file.write(response.content)
+            temp_file.flush()  # Ensure data is written to disk
+            # Calculate the SHA256 hash using the already open file
+            sha256_hash = self.calculate_sha256_from_file(temp_file)
+        # The temporary file is automatically deleted after the with block
+        return sha256_hash
 
+    def calculate_sha256_from_file(self, file_obj):
+        # Ensure the file pointer is at the beginning
+        file_obj.seek(0)
+        sha256_hash = hashlib.sha256()
+        # Read the file in chunks to avoid using too much memory
+        for byte_block in iter(lambda: file_obj.read(4096), b""):
+            sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()

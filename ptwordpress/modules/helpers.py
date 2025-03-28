@@ -5,11 +5,13 @@ import os
 import csv
 import concurrent.futures
 
+import requests
 
 from modules.http_client import HttpClient
+from modules.release_badges import known_svg_badge_hashes
+from modules.plugins.hashes import Hashes
 
 from ptlibs import ptmisclib, ptprinthelper
-
 from ptlibs.ptprinthelper import ptprint
 
 import defusedxml.ElementTree as ET
@@ -92,7 +94,7 @@ class Helpers:
     def check_if_behind_cloudflare(self, base_response: object):
         """Check if target is behind cloudflare"""
         if any(header.lower() in ["cf-edge-cache", "cf-cache-status", "cf-ray"] for header in base_response.headers.keys()):
-            ptprinthelper.ptprint("Target site is behind Cloudflare, results may not be accurate.", "WARNING", condition=not self.args.json, colortext=False, indent=0, newline_above=True)
+            ptprinthelper.ptprint("Target site is behind Cloudflare, results may not be accurate.", "WARNING", condition=not self.args.json, indent=0, newline_above=True)
             return True
 
     def _is_head_method_allowed(self, url) -> bool:
@@ -208,7 +210,7 @@ class Helpers:
         if robots_txt_response is not None and robots_txt_response.status_code == 200:
             ptprinthelper.ptprint(f"Robots.txt", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
             for line in robots_txt_response.text.splitlines():
-                ptprinthelper.ptprint(line, "TEXT", condition=not self.args.json, colortext=False, indent=4)
+                ptprinthelper.ptprint(line, "TEXT", condition=not self.args.json, indent=4)
 
     def print_supported_wordpress_versions(self, wp_version):
         def format_versions(versions: list):
@@ -233,6 +235,7 @@ class Helpers:
 
         ptprint(f"Supported version", "TITLE", not self.args.json, colortext=True, newline_above=True)
         response = self.http_client.send_request("https://api.wordpress.org/core/version-check/1.7/", allow_redirects=False, headers=self.args.headers)
+
         latest_available_version: str = response.json()["offers"][0]["version"]
         supported_versions: list = []
         index: int = 1
@@ -278,17 +281,25 @@ class Helpers:
     def get_wordpress_version(self, base_response, rss_response, meta_tags, head_method_allowed):
         """Retrieve wordpress version from metatags, rss feed, API, ... """
         ptprint(f"Wordpress version", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
-        svg_badge_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-admin/images/about-release-badge.svg", method=("HEAD" if head_method_allowed else "GET"), allow_redirects=False, headers=self.args.headers)
+        wp_version = None
+        svg_badge_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-admin/images/about-release-badge.svg", method="GET", allow_redirects=False, headers=self.args.headers)
         if svg_badge_response.status_code == 200:
-            ptprinthelper.ptprint(f"{svg_badge_response.url}", "VULN", condition=not self.args.json, colortext=False, indent=4)
+            ptprinthelper.ptprint(f"{svg_badge_response.url}", "VULN", condition=not self.args.json, indent=4)
+
+            # Get sha 256 hash from response and compare with local db
+            response_hash = Hashes(self.args).calculate_hashes(svg_badge_response.content)["SHA256"]
+            for key, value in known_svg_badge_hashes.items():
+                if value == response_hash:
+                    ptprinthelper.ptprint(f"Detected version: {key} (hash detection)", "VULN", condition=not self.args.json, indent=4)
+                    break
 
         opml_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-links-opml.php", method="GET", allow_redirects=False, headers=self.args.headers)
         if opml_response.status_code == 200:
             wp_version = re.findall(r"WordPress.*(\d\.\d\.[\d.]+)", opml_response.text)
             if wp_version:
                 wp_version = wp_version[0]
-                ptprinthelper.ptprint(f"File wp-links-opml.php provide version of Wordpress: {wp_version}", "VULN", condition=not self.args.json, colortext=False, indent=4)
-                found_wp_version = wp_version
+                ptprinthelper.ptprint(f"File wp-links-opml.php provide version of Wordpress: {wp_version}", "VULN", condition=not self.args.json, indent=4)
+                wp_version = wp_version
 
         # Print meta tags
         if meta_tags:
@@ -299,7 +310,7 @@ class Helpers:
                 match = re.search(r"WordPress (\d+\.\d+\.\d+)", tag.get("content"), re.IGNORECASE)
                 if match:
                     meta_tag_result.append(tag.get("content"))
-                    found_wp_version = match.group(1)
+                    wp_version = match.group(1)
 
             if meta_tag_result:
                 ptprint(f"The metatag 'generator' provides information about WordPress version: {', '.join(meta_tag_result)}", "VULN", condition=not self.args.json, indent=4)
@@ -313,11 +324,11 @@ class Helpers:
         if rss_response:
             # Get wordpress version
             result = self._get_wp_version_from_rss_feed(response=rss_response)
-            found_wp_version = result if result else found_wp_version
+            wp_version = result if result else wp_version
 
         # TODO: If you know about more methods, add them ...
 
-        return found_wp_version
+        return wp_version
 
     def _get_wp_version_from_rss_feed(self, response):
         """Retrieve wordpress version from generator tag if possible"""
@@ -335,9 +346,9 @@ class Helpers:
                 break
 
         if _wp_version:
-            ptprinthelper.ptprint(f"RSS feed provide version of Wordpress: {_wp_version}", "VULN", condition=not self.args.json, colortext=False, indent=4)
+            ptprinthelper.ptprint(f"RSS feed provide version of Wordpress: {_wp_version}", "VULN", condition=not self.args.json, indent=4)
         else:
-            ptprinthelper.ptprint(f"RSS feed does not provide version of Wordpress", "OK", condition=not self.args.json, colortext=False, indent=4)
+            ptprinthelper.ptprint(f"RSS feed does not provide version of Wordpress", "OK", condition=not self.args.json, indent=4)
 
         return _wp_version
 

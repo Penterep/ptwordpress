@@ -1,5 +1,7 @@
+from ptlibs.ptprinthelper import ptprint
 import requests
 import time
+import re
 
 class HttpClient:
     _instance = None
@@ -28,6 +30,10 @@ class HttpClient:
         """Wrapper for requests.request that allows dynamic passing of arguments."""
         try:
             response = requests.request(method=method, url=url, allow_redirects=allow_redirects, headers=headers, data=data, proxies=self.proxy if self.proxy else {}, verify=False if self.proxy else True)
+
+            if method.upper() == "GET":
+                self._check_fpd_in_response(response)
+
             if self.delay > 0:
                 time.sleep(self.delay / 1000)  # Convert ms to seconds
             return response
@@ -46,3 +52,30 @@ class HttpClient:
             r'(?::\d+)?'  # optional port
             r'(?:/?|[/?]\S+)$', re.IGNORECASE)
         return re.match(regex, url) is not None
+
+    def _check_fpd_in_response(self, response, *, base_indent=4):
+        """
+        Checks the given HTTP response for Full Path Disclosure (FPD) errors.
+
+        Args:
+            response (requests.Response): The HTTP response to check for FPD errors.
+
+        Prints:
+            An error message if FPD is found in the response, otherwise indicates no FPD error.
+        """
+        error_patterns = [
+            r"<b>Warning</b>: .* on line.*",
+            r"<b>Fatal error</b>: .* on line.*",
+            r"<b>Error</b>: .* on line.*",
+            r"<b>Notice</b>: .* on line.*"
+        ]
+        try:
+            # Check for FPD errors in the response
+            for pattern in error_patterns:
+                match = re.search(pattern, response.text)
+                if match:
+                    ptprint(f"[{response.status_code}] {response.url} contains FPD eror message: {match.group(0)}", "VULN", condition=not self.args.json, indent=base_indent)
+                    return
+            #print("No FPD error found in the response.")
+        except Exception as e:
+            print(f"Error during FPD check: {e}")

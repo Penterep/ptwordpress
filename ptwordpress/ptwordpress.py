@@ -40,7 +40,6 @@ from collections import OrderedDict
 from ptlibs import ptjsonlib, ptprinthelper, ptmisclib, ptnethelper, ptnethelper
 from ptlibs.ptprinthelper import ptprint
 
-
 from modules.plugins.emails import Emails, get_emails_instance
 from modules.plugins.media_download import MediaDownloader
 from modules.user_discovery import UserDiscovery
@@ -50,9 +49,9 @@ from modules.routes_walker import APIRoutesWalker
 from modules.plugins.hashes import Hashes
 
 from modules.http_client import HttpClient
-from modules.helpers import Helpers
 
 from modules.helpers import print_api_is_not_available
+from modules.helpers import Helpers
 
 
 class PtWordpress:
@@ -72,6 +71,9 @@ class PtWordpress:
     def run(self, args) -> None:
         """Main method"""
         self.base_response: object = self._get_base_response(url=self.BASE_URL)
+        self.helpers.BASE_URL = self.BASE_URL
+        self.helpers.REST_URL = self.REST_URL
+
         self.rest_response, self.rss_response, self.robots_txt_response = self.helpers.fetch_responses_in_parallel() # Parallel response retrieval
 
         self.helpers.check_if_target_is_wordpress(base_response=self.base_response, wp_json_response=None)
@@ -111,7 +113,7 @@ class PtWordpress:
         self.SourceDiscovery.wordlist_discovery("statistics", title="statistics")
         self.SourceDiscovery.wordlist_discovery("backups", title="backup files or directories")
         self.SourceDiscovery.wordlist_discovery("repositories", title="repositories")
-        if self.args.read_me:
+        if self.args.readme:
             self.SourceDiscovery.wordlist_discovery("readme", title="readme files in root directory")
         else:
             self.SourceDiscovery.wordlist_discovery("readme_small_root", title="readme files in root directory")
@@ -172,17 +174,20 @@ def get_help():
         {"usage": ["ptwordpress <options>"]},
         {"usage_example": [
             "ptwordpress -u https://www.example.com",
+            "ptwordpress -u https://www.example.com",
+            "ptwordpress -u https://www.example.com -wu ~/mywordlist",
+            "ptwordpress -u https://www.example.com -o ./example -sm ./media",
         ]},
         {"Info": [
             "If no wordlist option set, default will be used",
         ]},
         {"options": [
             ["-u",  "--url",                    "<url>",                "Connect to URL"],
-            ["-rm",  "--read-me",               "",                     "Enable readme dictionary attacks"],
+            ["-rm",  "--readme",               "",                     "Enable readme dictionary attacks"],
             ["-o",  "--output",                 "<file>",               "Save emails, users, logins and media urls to files"],
             ["-wpsk", "--wpscan-key",           "<api-key>",            "Set WPScan API key (https://wpscan.com)"],
             ["-sm",  "--save-media",            "<folder>",             "Save media to folder"],
-            ["-T",  "--timeout",                "",                     "Set Timeout"],
+            ["-T",  "--timeout",                "<timeout>",                     "Set Timeout"],
             ["-p",  "--proxy",                  "<proxy>",              "Set Proxy"],
             ["-c",  "--cookie",                 "<cookie>",             "Set Cookie"],
             ["-a", "--user-agent",              "<agent>",              "Set User-Agent"],
@@ -234,11 +239,11 @@ def parse_args():
     parser.add_argument("-ir", "--id-range",         type=parse_range, default=(1, 10))
     parser.add_argument("-H",  "--headers",          type=ptmisclib.pairs, nargs="+")
     parser.add_argument("-r",  "--redirects",        action="store_true")
-    parser.add_argument("-rm",  "--read-me",         action="store_true")
+    parser.add_argument("-rm",  "--readme",          action="store_true")
     parser.add_argument("-C",  "--cache",            action="store_true")
     parser.add_argument("-j",  "--json",             action="store_true")
     parser.add_argument("-v",  "--version",          action='version', version=f'{SCRIPTNAME} {__version__}')
-    parser.add_argument("--delay",                   type=float, default=0, help="Delay between requests in seconds")
+    parser.add_argument("-d",  "--delay",            type=float, default=0, help="Delay between requests in seconds")
     parser.add_argument("--socket-address",          type=str, default=None)
     parser.add_argument("--socket-port",             type=str, default=None)
     parser.add_argument("--process-ident",           type=str, default=None)
