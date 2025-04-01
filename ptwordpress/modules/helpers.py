@@ -437,12 +437,11 @@ def _yes_no_prompt(message) -> bool:
 
 def load_wordlist_file(wordlist_file: str, args_wordlist):
     if args_wordlist:
-        wordlist_file = os.path.join(args_wordlist, wordlist_file)
+        path = os.path.join(args_wordlist, wordlist_file)
         if not os.path.exists(wordlist_file):
             # If file doesn't exist, fall back to the default path
-            wordlist_file = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", wordlist_file)
+            path = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", wordlist_file)
     else:
-        # If no wordlist argument is provided, use the default path
-            wordlist_file = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", wordlist_file)
-
-    return wordlist_file
+          # If no wordlist argument is provided, use the default path
+            path = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", wordlist_file)
+    return path

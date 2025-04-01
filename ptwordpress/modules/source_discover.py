@@ -58,7 +58,6 @@ class SourceDiscover:
         # Variable wordlist can be filename or list of files
         if isinstance(wordlist, str):
             wordlist_file = load_wordlist_file(f"{wordlist}.txt", args_wordlist=self.args.wordlist)
-
             with open(wordlist_file, "r") as file:
                 lines = file.readlines()
         else:
@@ -151,7 +150,6 @@ class SourceDiscover:
                     return scrapped_media
             except Exception as e:
                 return
-
 
         result = []
         source_urls = set()
