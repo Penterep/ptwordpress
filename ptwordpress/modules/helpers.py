@@ -287,7 +287,7 @@ class Helpers:
         svg_badge_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-admin/images/about-release-badge.svg", method="GET", allow_redirects=False, headers=self.args.headers)
         if svg_badge_response.status_code == 200:
             ptprinthelper.ptprint(f"{svg_badge_response.url}", "VULN", condition=not self.args.json, indent=4, end="")
-
+            _found = False
             # Get sha 256 hash from response and compare with local db
             response_hash = Hashes(self.args).calculate_hashes(svg_badge_response.content)["SHA256"]
             for key, value in known_svg_badge_hashes.items():
