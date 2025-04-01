@@ -376,11 +376,11 @@ class UserDiscover:
         script_dir = os.path.abspath(os.path.dirname(__file__))
         original_path = os.path.join(script_dir, "wordlists", "usernames.txt")
 
-        if not self.args.wordlist_users:
+        if not self.args.wordlist:
             return original_path
         else:
-            if os.path.isfile(self.args.wordlist_users):
-                path = os.path.abspath(self.args.wordlist_users)
+            if os.path.isfile(self.args.wordlist):
+                path = os.path.abspath(self.args.wordlist)
                 try:
                     self._check_if_file_is_readable(path)
                     return path

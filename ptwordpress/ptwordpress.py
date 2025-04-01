@@ -159,7 +159,7 @@ def get_help():
             ["-a", "--user-agent",              "<agent>",              "Set User-Agent"],
             ["-d", "--delay",                   "<miliseconds>",        "Set delay before each request"],
             ["-ar", "--author-range",           "<author-range>",       "Set custom range for author enumeration (e.g. 1000-1300)"],
-            ["-wu", "--wordlist-users",         "<user_wordlist>",      "Set Custom wordlist for user enumeration"],
+            ["-w", "--wordlist",                "<wordlist>",           "Set custom wordlist directory"],
             ["-H",  "--headers",                "<header:value>",       "Set Header(s)"],
             ["-t",  "--threads",                "<threads>",            "Number of threads (default 10)"],
             ["-r",  "--redirects",              "",                     "Follow redirects (default False)"],
@@ -174,17 +174,15 @@ def get_help():
 
 def parse_args():
     parser = argparse.ArgumentParser(add_help="False", description=f"{SCRIPTNAME} <options>", allow_abbrev=False)
-    parser.add_argument("-u",  "--url",              type=str, required=True)
-    parser.add_argument("-p",  "--proxy",            type=str)
+    parser.add_argument("-u",   "--url",             type=str, required=True)
+    parser.add_argument("-p",   "--proxy",           type=str)
     parser.add_argument("-sm",  "--save-media",      type=str)
-    parser.add_argument("-wu", "--wordlist-users",   type=str)
-    parser.add_argument("-T",  "--timeout",          type=int, default=10)
-    parser.add_argument("-t",  "--threads",          type=int, default=10)
-    parser.add_argument("-a",  "--user-agent",       type=str, default="Penterep Tools")
-    parser.add_argument("-c",  "--cookie",           type=str)
-    parser.add_argument("-o",  "--output",           type=str)
+    parser.add_argument("-w",   "--wordlist",        type=str)
+    parser.add_argument("-c",   "--cookie",          type=str)
+    parser.add_argument("-o",   "--output",          type=str)
     parser.add_argument("-wpsk", "--wpscan-key",     type=str)
     parser.add_argument("-dl",  "--download",        type=str, nargs="?", const=True)
+    parser.add_argument("-a",   "--user-agent",      type=str, default="Penterep Tools")
     parser.add_argument("-ar", "--author-range",     type=ptmisclib.parse_range, default=(1, 10))
     parser.add_argument("-ir", "--id-range",         type=ptmisclib.parse_range, default=(1, 10))
     parser.add_argument("-H",  "--headers",          type=ptmisclib.pairs, nargs="+")
@@ -194,6 +192,8 @@ def parse_args():
     parser.add_argument("-j",  "--json",             action="store_true")
     parser.add_argument("-d",  "--delay",            type=float, default=0, help="Delay between requests in seconds")
     parser.add_argument("-v",  "--version",          action='version', version=f'{SCRIPTNAME} {__version__}')
+    parser.add_argument("-T",   "--timeout",         type=int, default=10)
+    parser.add_argument("-t",   "--threads",         type=int, default=10)
 
     parser.add_argument("--socket-address",          type=str, default=None)
     parser.add_argument("--socket-port",             type=str, default=None)

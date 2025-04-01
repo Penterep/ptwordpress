@@ -248,11 +248,12 @@ class SourceDiscover:
         # Directory listing test in all resources
         self.wordlist_discovery(["/"], url_path=paths_to_resources, title=f"directory listing of {content_type}s", search_in_response="index of", method="get")
 
+
         # Readme test in all resources
         if self.args.readme:
             self.wordlist_discovery("readme", url_path=paths_to_resources, title=f"readme files of {content_type}s")
         else:
-            self.wordlist_discovery("readme_small_plugins", title=f"readme files of {content_type}s")
+            self.wordlist_discovery("readme_small_plugins", url_path=paths_to_resources, title=f"readme files of {content_type}s")
 
         return list(names)
 
