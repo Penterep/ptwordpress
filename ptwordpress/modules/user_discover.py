@@ -29,7 +29,7 @@ class UserDiscover:
         self.FOUND_AUTHOR_IDS = set()
         self.ENUMERATED_USERS = []
         self.RESULT_QUERY = Queue()
-        self.path_to_user_wordlist = self.get_path_to_wordlist()
+        self.path_to_user_wordlist = load_wordlist_file("usernames.txt", args_wordlist=self.args.wordlist)
         self.vulnerable_endpoints: set = set()
         self.thread_lock = Lock()
         self.yoast_scraper = YoastScraper(args=self.args)
@@ -369,19 +369,6 @@ class UserDiscover:
         with open(wordlist_path, "r") as f:
             for line in f:
                 yield line.strip()  # Yield wordlist
-
-    def get_path_to_wordlist(self):
-        """Load correct wordlists"""
-
-        wordlist_file = load_wordlist_file("usernames.txt", args_wordlist=self.args.wordlist)
-
-        script_dir = os.path.abspath(os.path.dirname(__file__))
-        original_path = os.path.join(script_dir, "wordlists", "usernames.txt")
-
-        if not self.args.wordlist:
-            return original_path
-        else:
-            return wordlist_file
 
     def _check_if_file_is_readable(self, path):
         """Ensure wordlist contains valid text not binary"""
