@@ -3,11 +3,13 @@ import socket
 import re
 import os
 import csv
+import sys
 import concurrent.futures
 
 import requests
 
-from modules.http_client import HttpClient
+from ptlibs.http.http_client import HttpClient
+
 from modules.release_badges import known_svg_badge_hashes
 from modules.plugins.hashes import Hashes
 
@@ -181,7 +183,7 @@ class Helpers:
                 raise Exception
             return rest_response.json()
         except Exception as e:
-            print_api_is_not_available(status_code=getattr(response, "status_code", None))
+            print_api_is_not_available(status_code=getattr(rest_response, "status_code", None))
 
     def extract_and_print_html_comments(self, response):
         soup = BeautifulSoup(response.content, 'lxml')
@@ -249,7 +251,7 @@ class Helpers:
 
         ptprint(f"Recommended version: {latest_available_version}", "TEXT", not self.args.json, indent=4)
         ptprint(f"Supported versions:\n{format_versions(supported_versions)}", "TEXT", not self.args.json, indent=4)
-        if wp_version is None:
+        if wp_version is None or not wp_version:
             ptprint(f"Unknown wordpress version", "WARNING", not self.args.json, indent=4)
         elif wp_version not in supported_versions:
             ptprint(f"Target uses unsupported version: {wp_version}.", "VULN", not self.args.json, indent=4)
@@ -284,14 +286,17 @@ class Helpers:
         wp_version = None
         svg_badge_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-admin/images/about-release-badge.svg", method="GET", allow_redirects=False, headers=self.args.headers)
         if svg_badge_response.status_code == 200:
-            ptprinthelper.ptprint(f"{svg_badge_response.url}", "VULN", condition=not self.args.json, indent=4)
+            ptprinthelper.ptprint(f"{svg_badge_response.url}", "VULN", condition=not self.args.json, indent=4, end="")
 
             # Get sha 256 hash from response and compare with local db
             response_hash = Hashes(self.args).calculate_hashes(svg_badge_response.content)["SHA256"]
             for key, value in known_svg_badge_hashes.items():
                 if value == response_hash:
-                    ptprinthelper.ptprint(f"Detected version: {key} (hash detection)", "VULN", condition=not self.args.json, indent=4)
+                    ptprinthelper.ptprint(f": {key}", "TEXT", condition=not self.args.json)
+                    _found = True
                     break
+            if not _found:
+                ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json)
 
         opml_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-links-opml.php", method="GET", allow_redirects=False, headers=self.args.headers)
         if opml_response.status_code == 200:
@@ -371,6 +376,43 @@ class Helpers:
             responses = {name: future.result() for name, future in futures.items()}
             return responses["rest"], responses["rss"], responses["robots"]
         return rest_response, rss_response, robots_txt_response
+
+    def _get_base_response(self, url, instance_to_run):
+        """Retrieve base response and handle initial redirects"""
+        base_response = self._load_url(url=self.BASE_URL, args=self.args, message="Connecting to URL") # example.com/
+        self.print_response_headers(response=base_response)
+        if base_response.is_redirect:
+            self._handle_redirect(base_response, self.args, instance_to_run=instance_to_run)
+        return base_response
+
+    def _handle_redirect(self, response, args, instance_to_run):
+        if not self.args.json:
+            ptprint(f"[{response.status_code}] Returned response redirects to {response.headers.get('location', '?')}, following...", "INFO", not self.args.json, end="", flush=True, newline_above=True)
+            ptprint("\n", condition=not self.args.json, end="\n")
+            args.redirects = True
+            instance_to_run.BASE_URL = response.headers.get("location")[:-1] if response.headers.get("location").endswith("/") else response.headers.get("location")
+            instance_to_run.BASE_URL = urllib.parse.urlparse(instance_to_run.BASE_URL)._replace(path='', query='', fragment='').geturl() # Strip path
+            instance_to_run.REST_URL = self.BASE_URL + "/wp-json"
+
+            self.BASE_URL = instance_to_run.BASE_URL
+            self.REST_URL = instance_to_run.REST_URL
+            instance_to_run.args = args
+            self.args = args
+            instance_to_run.run(args=self.args)
+            sys.exit(0) # Recurse exit.
+
+    def _load_url(self, url, args = None, message: str = None):
+        try:
+            response, dump = ptmisclib.load_url(url, "GET", headers=self.args.headers, cache=self.args.cache, redirects=self.args.redirects, proxies=self.args.proxy, timeout=self.args.timeout, dump_response=True)
+            if message:
+                ptprint(f"{message}: {response.url}", "TITLE", not self.args.json, colortext=True, end=" ")
+                ptprint(f"[{response.status_code}]", "TEXT", not self.args.json, end="\n")
+            return response
+        except Exception as e:
+            if message:
+                ptprint(f"{message}: {args.url}", "TITLE", not self.args.json, colortext=True, end=" ")
+                ptprint(f"[err]", "TEXT", not self.args.json)
+            self.ptjsonlib.end_error(f"Error retrieving response from server.", self.args.json)
 
 
 def print_api_is_not_available(status_code):

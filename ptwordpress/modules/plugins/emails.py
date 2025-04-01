@@ -1,7 +1,7 @@
 import re
 from ptlibs import ptprinthelper, ptmisclib
 
-from modules.write_to_file import write_to_file
+from modules.file_writer import write_to_file
 
 
 class Emails:

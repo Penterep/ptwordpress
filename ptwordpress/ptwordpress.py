@@ -41,18 +41,21 @@ from ptlibs import ptjsonlib, ptprinthelper, ptmisclib, ptnethelper, ptnethelper
 from ptlibs.ptprinthelper import ptprint
 
 from modules.plugins.emails import Emails, get_emails_instance
-from modules.plugins.media_download import MediaDownloader
-from modules.user_discovery import UserDiscovery
-from modules.source_discovery import SourceDiscovery
+from modules.plugins.media_downloader import MediaDownloader
+
+from modules.user_discover   import UserDiscover
+from modules.source_discover import SourceDiscover
 from modules.wpscan_api import WPScanAPI
+
 from modules.routes_walker import APIRoutesWalker
 from modules.plugins.hashes import Hashes
 
-from modules.http_client import HttpClient
+from ptlibs.http.http_client import HttpClient
 
 from modules.helpers import print_api_is_not_available
 from modules.helpers import Helpers
 
+from modules.wordpress_downloader.wordpres_downloader import WordpressDownloader
 
 class PtWordpress:
     def __init__(self, args):
@@ -70,23 +73,19 @@ class PtWordpress:
 
     def run(self, args) -> None:
         """Main method"""
-        self.base_response: object = self._get_base_response(url=self.BASE_URL)
-        self.helpers.BASE_URL = self.BASE_URL
-        self.helpers.REST_URL = self.REST_URL
+        self.base_response: object = self.helpers._get_base_response(url=self.BASE_URL, instance_to_run=self)
 
         self.rest_response, self.rss_response, self.robots_txt_response = self.helpers.fetch_responses_in_parallel() # Parallel response retrieval
-
         self.helpers.check_if_target_is_wordpress(base_response=self.base_response, wp_json_response=None)
-
         self.is_cloudflare = self.helpers.check_if_behind_cloudflare(base_response=self.base_response)
 
         self.head_method_allowed: bool      = self.helpers._is_head_method_allowed(url=self.BASE_URL)
         self.target_is_case_sensitive: bool = self.helpers.check_case_sensitivity(url=self.BASE_URL)
 
-        self.SourceDiscovery: object     = SourceDiscovery(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed, self.target_is_case_sensitive)
-        self.UserDiscovery: object       = UserDiscovery(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
-        self.wpscan_api: object          = WPScanAPI(args, self.ptjsonlib)
-        self.email_scraper               = get_emails_instance(args=self.args)
+        self.source_discover: object     = SourceDiscover(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed, self.target_is_case_sensitive)
+        self.user_discover: object       = UserDiscover(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
+        self.wpscan_api: object         = WPScanAPI(args, self.ptjsonlib)
+        self.email_scraper: object      = get_emails_instance(args=self.args)
 
         meta_tags = self.helpers.extract_and_print_meta_tags(response=self.base_response)
 
@@ -100,72 +99,40 @@ class PtWordpress:
         self.helpers.print_supported_wordpress_versions(wp_version=self.wp_version) # From API
         self.helpers.print_robots_txt(robots_txt_response=self.robots_txt_response)
         self.helpers.process_sitemap(robots_txt_response=self.robots_txt_response)
-        self.SourceDiscovery.discover_xml_rpc()
-        self.SourceDiscovery.wordlist_discovery("admins", title="admin pages", show_responses=True)
-        self.SourceDiscovery.wordlist_discovery("configs", title="configuration files or pages")
-        self.SourceDiscovery.wordlist_discovery("dangerous", title="access to dangerous scripts", method="get")
-        self.SourceDiscovery.wordlist_discovery("settings", title="settings files")
-        self.SourceDiscovery.wordlist_discovery("directories", title="directory listing", search_in_response="index of", method="get")
-        self.SourceDiscovery.wordlist_discovery("fpd", title="Full Path Disclosure vulnerability", method="get")
-        self.SourceDiscovery.wordlist_discovery("logs", title="log files")
-        self.SourceDiscovery.wordlist_discovery("managements", title="management interface")
-        self.SourceDiscovery.wordlist_discovery("informations", title="information pages")
-        self.SourceDiscovery.wordlist_discovery("statistics", title="statistics")
-        self.SourceDiscovery.wordlist_discovery("backups", title="backup files or directories")
-        self.SourceDiscovery.wordlist_discovery("repositories", title="repositories")
-        if self.args.readme:
-            self.SourceDiscovery.wordlist_discovery("readme", title="readme files in root directory")
-        else:
-            self.SourceDiscovery.wordlist_discovery("readme_small_root", title="readme files in root directory")
+        self.source_discover.discover_xml_rpc()
+        self.source_discover.wordlist_discovery("admins", title="admin pages", show_responses=True)
+        self.source_discover.wordlist_discovery("configs", title="configuration files or pages")
+        self.source_discover.wordlist_discovery("dangerous", title="access to dangerous scripts", method="get")
+        self.source_discover.wordlist_discovery("settings", title="settings files")
+        self.source_discover.wordlist_discovery("directories", title="directory listing", search_in_response="index of", method="get")
+        self.source_discover.wordlist_discovery("fpd", title="Full Path Disclosure vulnerability", method="get")
+        self.source_discover.wordlist_discovery("logs", title="log files")
+        self.source_discover.wordlist_discovery("managements", title="management interface")
+        self.source_discover.wordlist_discovery("informations", title="information pages")
+        self.source_discover.wordlist_discovery("statistics", title="statistics")
+        self.source_discover.wordlist_discovery("backups", title="backup files or directories")
+        self.source_discover.wordlist_discovery("repositories", title="repositories")
 
-        plugins = self.SourceDiscovery.run_discovery(response=self.base_response, content_type="plugin")
-        themes = self.SourceDiscovery.run_discovery(response=self.base_response, content_type="theme")
+        if self.args.readme:
+            self.source_discover.wordlist_discovery("readme", title="readme files in root directory")
+        else:
+            self.source_discover.wordlist_discovery("readme_small_root", title="readme files in root directory")
+
+        plugins = self.source_discover.plugin_themes_discovery(response=self.base_response, content_type="plugin")
+        themes = self.source_discover.plugin_themes_discovery(response=self.base_response, content_type="theme")
 
         self.wpscan_api.run(wp_version=self.wp_version, plugins=plugins, themes=themes)
         self.helpers.parse_namespaces_from_rest(rest_response=self.rest_response)
 
-        self.UserDiscovery.run()
+        self.user_discover.run()
         self.email_scraper.print_result()
 
-        media_urls: list = self.SourceDiscovery.print_media(self.UserDiscovery.get_user_list()) # Scrape all uploaded public media
+        media_urls: list = self.source_discover.print_media(self.user_discover.get_user_list()) # Scrape all uploaded public media
         if self.args.save_media:
             MediaDownloader(args=self.args).save_media(media_urls)
 
         self.ptjsonlib.set_status("finished")
         ptprinthelper.ptprint(self.ptjsonlib.get_result_json(), "", self.args.json)
-
-    def _load_url(self, url, args = None, message: str = None):
-        try:
-            response, dump = ptmisclib.load_url(url, "GET", headers=self.args.headers, cache=self.args.cache, redirects=self.args.redirects, proxies=self.args.proxy, timeout=self.args.timeout, dump_response=True)
-            if message:
-                ptprint(f"{message}: {response.url}", "TITLE", not self.args.json, colortext=True, end=" ")
-                ptprint(f"[{response.status_code}]", "TEXT", not self.args.json, end="\n")
-            return response
-        except Exception as e:
-            if message:
-                ptprint(f"{message}: {args.url}", "TITLE", not self.args.json, colortext=True, end=" ")
-                ptprint(f"[err]", "TEXT", not self.args.json)
-            self.ptjsonlib.end_error(f"Error retrieving response from server.", self.args.json)
-
-    def _handle_redirect(self, response, args):
-        if not self.args.json:
-            ptprint(f"[{response.status_code}] Returned response redirects to {response.headers.get('location', '?')}, following...", "INFO", not self.args.json, end="", flush=True, newline_above=True)
-            ptprint("\n", condition=not self.args.json, end="\n")
-            args.redirects = True
-            self.BASE_URL = response.headers.get("location")[:-1] if response.headers.get("location").endswith("/") else response.headers.get("location")
-            self.BASE_URL = urllib.parse.urlparse(self.BASE_URL)._replace(path='', query='', fragment='').geturl() # Strip path
-            self.REST_URL = self.BASE_URL + "/wp-json"
-            self.args = args
-            self.run(args=self.args)
-            sys.exit(0) # Recurse exit.
-
-    def _get_base_response(self, url):
-        """Retrieve base response and handle initial redirects"""
-        base_response = self._load_url(url=self.BASE_URL, args=self.args, message="Connecting to URL") # example.com/
-        self.helpers.print_response_headers(response=base_response)
-        if base_response.is_redirect:
-            self._handle_redirect(base_response, self.args)
-        return base_response
 
 
 def get_help():
@@ -173,7 +140,6 @@ def get_help():
         {"description": ["Wordpress Security Testing Tool"]},
         {"usage": ["ptwordpress <options>"]},
         {"usage_example": [
-            "ptwordpress -u https://www.example.com",
             "ptwordpress -u https://www.example.com",
             "ptwordpress -u https://www.example.com -wu ~/mywordlist",
             "ptwordpress -u https://www.example.com -o ./example -sm ./media",
@@ -183,11 +149,11 @@ def get_help():
         ]},
         {"options": [
             ["-u",  "--url",                    "<url>",                "Connect to URL"],
-            ["-rm",  "--readme",               "",                     "Enable readme dictionary attacks"],
+            ["-rm",  "--readme",               "",                      "Enable readme dictionary attacks"],
             ["-o",  "--output",                 "<file>",               "Save emails, users, logins and media urls to files"],
             ["-wpsk", "--wpscan-key",           "<api-key>",            "Set WPScan API key (https://wpscan.com)"],
             ["-sm",  "--save-media",            "<folder>",             "Save media to folder"],
-            ["-T",  "--timeout",                "<timeout>",                     "Set Timeout"],
+            ["-T",  "--timeout",                "<seconds>",            "Set Timeout"],
             ["-p",  "--proxy",                  "<proxy>",              "Set Proxy"],
             ["-c",  "--cookie",                 "<cookie>",             "Set Cookie"],
             ["-a", "--user-agent",              "<agent>",              "Set User-Agent"],
@@ -197,30 +163,13 @@ def get_help():
             ["-H",  "--headers",                "<header:value>",       "Set Header(s)"],
             ["-t",  "--threads",                "<threads>",            "Number of threads (default 10)"],
             ["-r",  "--redirects",              "",                     "Follow redirects (default False)"],
+            ["-dl",  "--download",              "<directory>",          "Download all versions of Wordpress"],
             ["-C",  "--cache",                  "",                     "Cache HTTP communication"],
             ["-v",  "--version",                "",                     "Show script version and exit"],
             ["-h",  "--help",                   "",                     "Show this help message and exit"],
             ["-j",  "--json",                   "",                     "Output in JSON format"],
         ]
         }]
-
-def parse_range(string: str):
-    """Parses range, expected formats are 1-999999, 1 9999"""
-    match = re.match(r'(\d+)[- ](\d+)$', string)
-    try:
-        if not match:
-            raise argparse.ArgumentTypeError(f"Error: {string} is not in valid format. Expected range in format 1-99999 or 1 99999.")
-        if int(match.group(1)) > int(match.group(2)):
-            raise argparse.ArgumentTypeError(f"Error: Provided range is not valid")
-        if (int(match.group(1)) > 99999) or (int(match.group(2)) > 99999):
-            raise argparse.ArgumentTypeError(f"Error: Provided range is too high")
-
-        if int(match.group(1)) < 1:
-            return ( 1, int(match.group(2)) )
-        return ( int(match.group(1)), int(match.group(2)) )
-
-    except argparse.ArgumentTypeError as e:
-        return (1, 10)
 
 
 def parse_args():
@@ -229,21 +178,23 @@ def parse_args():
     parser.add_argument("-p",  "--proxy",            type=str)
     parser.add_argument("-sm",  "--save-media",      type=str)
     parser.add_argument("-wu", "--wordlist-users",   type=str)
-    parser.add_argument("-wpsk", "--wpscan-key",     type=str)
     parser.add_argument("-T",  "--timeout",          type=int, default=10)
     parser.add_argument("-t",  "--threads",          type=int, default=10)
     parser.add_argument("-a",  "--user-agent",       type=str, default="Penterep Tools")
     parser.add_argument("-c",  "--cookie",           type=str)
     parser.add_argument("-o",  "--output",           type=str)
-    parser.add_argument("-ar", "--author-range",     type=parse_range, default=(1, 10))
-    parser.add_argument("-ir", "--id-range",         type=parse_range, default=(1, 10))
+    parser.add_argument("-wpsk", "--wpscan-key",     type=str)
+    parser.add_argument("-dl",  "--download",        type=str, nargs="?", const=True)
+    parser.add_argument("-ar", "--author-range",     type=ptmisclib.parse_range, default=(1, 10))
+    parser.add_argument("-ir", "--id-range",         type=ptmisclib.parse_range, default=(1, 10))
     parser.add_argument("-H",  "--headers",          type=ptmisclib.pairs, nargs="+")
     parser.add_argument("-r",  "--redirects",        action="store_true")
     parser.add_argument("-rm",  "--readme",          action="store_true")
     parser.add_argument("-C",  "--cache",            action="store_true")
     parser.add_argument("-j",  "--json",             action="store_true")
-    parser.add_argument("-v",  "--version",          action='version', version=f'{SCRIPTNAME} {__version__}')
     parser.add_argument("-d",  "--delay",            type=float, default=0, help="Delay between requests in seconds")
+    parser.add_argument("-v",  "--version",          action='version', version=f'{SCRIPTNAME} {__version__}')
+
     parser.add_argument("--socket-address",          type=str, default=None)
     parser.add_argument("--socket-port",             type=str, default=None)
     parser.add_argument("--process-ident",           type=str, default=None)
@@ -252,7 +203,6 @@ def parse_args():
         sys.exit(0)
 
     args = parser.parse_args()
-
     args.timeout = args.timeout if not args.proxy else None
     args.proxy = {"http": args.proxy, "https": args.proxy} if args.proxy else None
     args.headers = ptnethelper.get_request_headers(args)
@@ -260,17 +210,19 @@ def parse_args():
     if args.output:
         args.output = os.path.abspath(args.output)
 
+    if args.download:
+        WordpressDownloader(download_path=args.download)
+        sys.exit(1)
+
     ptprinthelper.print_banner(SCRIPTNAME, __version__, args.json, space=0)
     return args
 
 def main():
     global SCRIPTNAME
     SCRIPTNAME = "ptwordpress"
-    requests.packages.urllib3.disable_warnings()
     args = parse_args()
     script = PtWordpress(args)
     script.run(args)
-
 
 if __name__ == "__main__":
     main()

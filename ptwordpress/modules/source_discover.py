@@ -11,13 +11,14 @@ from ptlibs import ptprinthelper
 from ptlibs.ptprinthelper import ptprint
 import ptlibs.tldparser as tldparser
 
-from modules.write_to_file import write_to_file
+from modules.file_writer import write_to_file
 
-from modules.http_client import HttpClient
+from ptlibs.http.http_client import HttpClient
+
 
 from modules.helpers import print_api_is_not_available
 
-class SourceDiscovery:
+class SourceDiscover:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed: bool, target_is_case_sensitive: bool):
         self.args = args
         self.BASE_URL = base_url
@@ -197,7 +198,7 @@ class SourceDiscovery:
         return source_urls
 
 
-    def run_discovery(self, response, content_type) -> list:
+    def plugin_themes_discovery(self, response, content_type) -> list:
         """General discovery for theme or plugin."""
         if content_type == "theme":
             ptprinthelper.ptprint("Theme discovery", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
@@ -205,8 +206,6 @@ class SourceDiscovery:
         elif content_type == "plugin":
             ptprinthelper.ptprint("Plugin discovery", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
             pattern = r"([^\"'()]*wp-content\/plugins\/)(.*?)(?=[\"')])"
-        else:
-            raise ValueError("Invalid content_type specified. Use 'theme' or 'plugin'.")
 
         paths = re.findall(pattern, response.text, re.IGNORECASE)
         paths = sorted(paths, key=lambda x: x[0]) if paths else paths

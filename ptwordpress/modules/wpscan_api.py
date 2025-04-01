@@ -1,8 +1,7 @@
 import requests
 import json
 from ptlibs.ptprinthelper import ptprint
-
-from modules.http_client import HttpClient
+from ptlibs.http.http_client import HttpClient
 
 class WPScanAPI:
     def __init__(self, args, ptjsonlib):
@@ -74,7 +73,6 @@ class WPScanAPI:
     def get_plugin_vulnerabilities(self, plugin: str):
         response_data = self.send_request(url=self.API_URL + f"/plugins/{plugin}").json()
         if "is_error" in response_data.keys() or any(error_message in response_data.get("status", "") for error_message in ["error", "rate limit hit", "forbidden"]):
-            ptprint(response_data, "TEXT", not self.args.json)
             return
         if response_data.get(plugin):
             response_data = response_data[plugin]

@@ -72,5 +72,4 @@ class YoastScraper:
 
             return []
         except Exception as e:
-            #print(f"Chyba: {e}")
             return []

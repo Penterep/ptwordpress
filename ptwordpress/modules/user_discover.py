@@ -10,16 +10,16 @@ import defusedxml.ElementTree as ET
 from ptlibs import ptprinthelper
 from threading import Lock
 
-from modules.write_to_file import write_to_file
+from modules.file_writer import write_to_file
 
 from modules.plugins.yoast import YoastScraper
 from modules.plugins.emails import Emails, get_emails_instance
 
-from modules.http_client import HttpClient
+from ptlibs.http.http_client import HttpClient
 
 from modules.helpers import print_api_is_not_available
 
-class UserDiscovery:
+class UserDiscover:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed):
         self.ptjsonlib = ptjsonlib
         self.args = args
@@ -28,26 +28,22 @@ class UserDiscovery:
         self.REST_URL = base_url + "/wp-json"
         self.FOUND_AUTHOR_IDS = set()
         self.ENUMERATED_USERS = []
-        self.vulnerable_endpoints: set = set() # List of URL spots allowing user enumeration
+        self.RESULT_QUERY = Queue()
         self.path_to_user_wordlist = self.get_path_to_wordlist()
-
+        self.vulnerable_endpoints: set = set()
         self.thread_lock = Lock()
         self.yoast_scraper = YoastScraper(args=self.args)
-        self.RESULT_QUERY = Queue()
-
         self.email_scraper = get_emails_instance(args=self.args)
-
         self.http_client = HttpClient()
 
     def run(self):
         self._enumerate_users_by_rss_feed()
-        self._enumerate_users_by_author_name()        # example.com/author/<author> (dictionary attack)
-        self._enumerate_users_by_author_id()          # example.com/?author=<id> (range attack)
-        self.enumerate_by_users()                     # example.com/wp-json/wp/v2/users?page=<id>&per_page=100
+        self._enumerate_users_by_author_name()        # example.com/author/<author>
+        self._enumerate_users_by_author_id()          # example.com/?author=<id>
+        self.enumerate_by_users()                     # example.com/wp-json/wp/v2/users
         self.scrape_users_by_posts()
         self.print_enumerated_users_table()
         self.print_unique_logins()
-        #self.print_vulnerable_endpoints()
         self.yoast_scraper.print_result()
 
     def print_unique_logins(self):
@@ -57,7 +53,6 @@ class UserDiscovery:
         if not unique_slugs:
             ptprinthelper.ptprint(f"No logins discovered", "OK", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
             return
-
 
         for slug in unique_slugs:
             ptprinthelper.ptprint(slug, "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
@@ -69,7 +64,6 @@ class UserDiscovery:
     def print_enumerated_users_table(self):
         ptprinthelper.ptprint(f"Discovered users", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         users = list(self.RESULT_QUERY.queue)
-
         users = self.filter_duplicate_users(users)
         users.sort(key=lambda x: int(x["id"]) if isinstance(x["id"], str) and x["id"].isdigit() else float('inf'))
 
@@ -90,7 +84,6 @@ class UserDiscovery:
                 ptprinthelper.ptprint(f'{user["id"]}{" "*(max_id_len-len(user["id"]))}{user["slug"]}{" "*(max_slug_len-len(user["slug"]))}{user["name"]}', "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
                 user_lines.append(f"{user['id']}:{user.get('slug')}:{user['name']}")
         except Exception as e:
-            print(e)
             return
 
         if self.args.output:
@@ -203,9 +196,7 @@ class UserDiscovery:
             max_length = len(str(self.args.author_range[-1])) - len(str(author_id))
             user_id = response.url.split("=")[-1]
             if response.status_code == 200:
-                # Extracts name from title
-                #title = (re.search(r"<title>(.*?)</title>", response.text, re.IGNORECASE | re.DOTALL))
-                name_from_title = self._extract_name_from_title(response)
+                name_from_title = self._extract_name_from_title(response) # Extracts name from title
                 if name_from_title:
                     ptprinthelper.ptprint(f"[{response.status_code}] {url}{' '*max_length} →   {name_from_title}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
                     return {"id": str(user_id) if user_id.isdigit() else "", "name": name_from_title, "slug": ""}
@@ -227,11 +218,6 @@ class UserDiscovery:
                     nickname_max_length =  (20 - len(str(name_from_title)))
                     ptprinthelper.ptprint(f"[{response.status_code}] {response.url}{' '*max_length} →   {name_from_title} {' '*nickname_max_length}{slug}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
                     return {"id": str(user_id) if user_id.isdigit() else "", "name": name_from_title, "slug": slug}
-
-        """
-        base_site_title = requests.get(self.BASE_URL, proxies=self.args.proxy, verify=False, headers=self.args.headers)
-        base_title = re.search(r"<title>(.*?)</title>", base_site_title.text, re.IGNORECASE | re.DOTALL).groups()[0]
-        """
 
         futures: list = []
         results: list = []
@@ -415,13 +401,7 @@ class UserDiscovery:
     def _extract_name_from_title(self, response, base_title=None):
         """Extracts full name from response title"""
         try:
-            title = re.search(r"<title>(.*?)</title>", response.text, re.IGNORECASE | re.DOTALL).groups()[0]#[1].strip().split(" ", 2)
-
-            """
-            if base_title:
-                if base_title == title:
-                    return ""
-            """
+            title = re.search(r"<title>(.*?)</title>", response.text, re.IGNORECASE | re.DOTALL).groups()[0]
 
             email_from_title = re.match(r"([\w\.-]+@[\w\.-]+\.?\w+)", title)
             name_from_title = None
