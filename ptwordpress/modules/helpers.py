@@ -24,7 +24,7 @@ class Helpers:
     def __init__(self, args, ptjsonlib):
         self.args = args
         self.ptjsonlib = ptjsonlib
-        self.BASE_URL, self.REST_URL     = self.construct_wp_api_url(args.url)
+        self.BASE_URL, self.REST_URL = self.construct_wp_api_url(args.url)
         self.http_client = HttpClient(args=self.args, ptjsonlib=self.ptjsonlib)
 
     def print_response_headers(self, response):
@@ -157,7 +157,10 @@ class Helpers:
         ptprinthelper.ptprint(f"Namespaces (API provided by addons)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         rest_response = rest_response.json()
         namespaces = rest_response.get("namespaces", [])
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "wordlists", "plugin_list.csv"), mode='r') as file:
+
+        wordlist_file = load_wordlist_file(wordlist_file="plugin_list.csv", args_wordlist=self.args.wordlist)
+
+        with open(wordlist_file, mode='r') as file:
             csv_reader = csv.reader(file)
             csv_data = list(csv_reader)
 
@@ -431,3 +434,15 @@ def _yes_no_prompt(message) -> bool:
             return False
         else:
             return True
+
+def load_wordlist_file(wordlist_file: str, args_wordlist):
+    if args_wordlist:
+        wordlist_file = os.path.join(args_wordlist, wordlist_file)
+        if not os.path.exists(wordlist_file):
+            # If file doesn't exist, fall back to the default path
+            wordlist_file = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", wordlist_file)
+    else:
+        # If no wordlist argument is provided, use the default path
+            wordlist_file = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", wordlist_file)
+
+    return wordlist_file

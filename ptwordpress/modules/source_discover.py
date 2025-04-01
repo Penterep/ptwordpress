@@ -16,7 +16,8 @@ from modules.file_writer import write_to_file
 from ptlibs.http.http_client import HttpClient
 
 
-from modules.helpers import print_api_is_not_available
+from modules.helpers import print_api_is_not_available, load_wordlist_file
+
 
 class SourceDiscover:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed: bool, target_is_case_sensitive: bool):
@@ -56,7 +57,8 @@ class SourceDiscover:
 
         # Variable wordlist can be filename or list of files
         if isinstance(wordlist, str):
-            wordlist_file = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", f"{wordlist}.txt")
+            wordlist_file = load_wordlist_file(f"{wordlist}.txt", args_wordlist=self.args.wordlist)
+
             with open(wordlist_file, "r") as file:
                 lines = file.readlines()
         else:

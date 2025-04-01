@@ -17,7 +17,7 @@ from modules.plugins.emails import Emails, get_emails_instance
 
 from ptlibs.http.http_client import HttpClient
 
-from modules.helpers import print_api_is_not_available
+from modules.helpers import print_api_is_not_available, load_wordlist_file
 
 class UserDiscover:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed):
@@ -370,22 +370,18 @@ class UserDiscover:
             for line in f:
                 yield line.strip()  # Yield wordlist
 
-
     def get_path_to_wordlist(self):
         """Load correct wordlists"""
+
+        wordlist_file = load_wordlist_file("usernames.txt", args_wordlist=self.args.wordlist)
+
         script_dir = os.path.abspath(os.path.dirname(__file__))
         original_path = os.path.join(script_dir, "wordlists", "usernames.txt")
 
         if not self.args.wordlist:
             return original_path
         else:
-            if os.path.isfile(self.args.wordlist):
-                path = os.path.abspath(self.args.wordlist)
-                try:
-                    self._check_if_file_is_readable(path)
-                    return path
-                except ValueError: # If file is not readable
-                    return original_path
+            return wordlist_file
 
     def _check_if_file_is_readable(self, path):
         """Ensure wordlist contains valid text not binary"""

@@ -19,43 +19,26 @@
 """
 
 import argparse
-import concurrent.futures
-import re
-import csv
 import os
 import sys; sys.path.append(__file__.rsplit("/", 1)[0])
-import urllib
-import json
-import http.client
-import requests
 
 from _version import __version__
 
-import threading
-import time
-from copy import deepcopy
-from queue import Queue
-from collections import OrderedDict
-
 from ptlibs import ptjsonlib, ptprinthelper, ptmisclib, ptnethelper, ptnethelper
 from ptlibs.ptprinthelper import ptprint
+from ptlibs.http.http_client import HttpClient
 
-from modules.plugins.emails import Emails, get_emails_instance
+from modules.plugins.emails import get_emails_instance
 from modules.plugins.media_downloader import MediaDownloader
-
 from modules.user_discover   import UserDiscover
 from modules.source_discover import SourceDiscover
 from modules.wpscan_api import WPScanAPI
-
 from modules.routes_walker import APIRoutesWalker
 from modules.plugins.hashes import Hashes
-
-from ptlibs.http.http_client import HttpClient
-
 from modules.helpers import print_api_is_not_available
 from modules.helpers import Helpers
-
 from modules.wordpress_downloader.wordpres_downloader import WordpressDownloader
+
 
 class PtWordpress:
     def __init__(self, args):
@@ -134,7 +117,6 @@ class PtWordpress:
         self.ptjsonlib.set_status("finished")
         ptprinthelper.ptprint(self.ptjsonlib.get_result_json(), "", self.args.json)
 
-
 def get_help():
     return [
         {"description": ["Wordpress Security Testing Tool"]},
@@ -151,7 +133,6 @@ def get_help():
             ["-u",  "--url",                    "<url>",                "Connect to URL"],
             ["-rm",  "--readme",               "",                      "Enable readme dictionary attacks"],
             ["-o",  "--output",                 "<file>",               "Save emails, users, logins and media urls to files"],
-            ["-wpsk", "--wpscan-key",           "<api-key>",            "Set WPScan API key (https://wpscan.com)"],
             ["-sm",  "--save-media",            "<folder>",             "Save media to folder"],
             ["-T",  "--timeout",                "<seconds>",            "Set Timeout"],
             ["-p",  "--proxy",                  "<proxy>",              "Set Proxy"],
@@ -161,6 +142,7 @@ def get_help():
             ["-ar", "--author-range",           "<author-range>",       "Set custom range for author enumeration (e.g. 1000-1300)"],
             ["-w", "--wordlist",                "<wordlist>",           "Set custom wordlist directory"],
             ["-H",  "--headers",                "<header:value>",       "Set Header(s)"],
+            ["-wpsk", "--wpscan-key",           "<api-key>",            "Set WPScan API key (https://wpscan.com)"],
             ["-t",  "--threads",                "<threads>",            "Number of threads (default 10)"],
             ["-r",  "--redirects",              "",                     "Follow redirects (default False)"],
             ["-dl",  "--download",              "<directory>",          "Download all versions of Wordpress"],
@@ -213,6 +195,12 @@ def parse_args():
     if args.download:
         WordpressDownloader(download_path=args.download)
         sys.exit(1)
+
+    if args.wordlist:
+        args.wordlist = os.path.abspath(args.wordlist)
+        if not os.path.isdir(args.wordlist):
+            print("Path to wordlist does not exist.")
+            sys.exit(1)
 
     ptprinthelper.print_banner(SCRIPTNAME, __version__, args.json, space=0)
     return args
