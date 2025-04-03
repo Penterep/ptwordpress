@@ -66,8 +66,8 @@ class SourceDiscover:
         if not self.target_is_case_sensitive:
             lines = sorted(set(word.lower() for word in lines))
 
-        # Ensure line starts with "/"
-        lines = [f"/{line}" for line in lines if not line.startswith("/")]
+        if wordlist == "plugins_big":
+            lines = [f"/wp-content/plugins/{line}" for line in lines]
 
         tested_files = (path.strip() for path in lines if not path.rstrip().endswith('.'))
         tested_files2 = (path.strip() for path in lines if path.rstrip().endswith('.'))
