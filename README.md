@@ -6,7 +6,7 @@
 ## Installation
 
 ```
-pip install ptwordpress
+pipx install ptwordpress
 ```
 
 ## Adding to PATH
@@ -35,7 +35,7 @@ ptwordpress -u https://www.example.com -o ./example -sm ./media
 ```
 -u     --url           <url>           Connect to URL
 -rm    --readme                        Enable readme dictionary attacks
--pd    --plugins                       Enable plugins directory attacks
+-pd    --plugins                       Enable plugins dictionary attacks
 -o     --output        <file>          Save emails, users, logins and media urls to files
 -sm    --save-media    <folder>        Save media to folder
 -T     --timeout       <seconds>       Set Timeout
@@ -55,7 +55,6 @@ ptwordpress -u https://www.example.com -o ./example -sm ./media
 -v     --version                       Show script version and exit
 -h     --help                          Show this help message and exit
 -j     --json                          Output in JSON format
-
 ```
 
 ## Dependencies
