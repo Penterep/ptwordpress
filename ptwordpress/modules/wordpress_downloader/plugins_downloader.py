@@ -98,5 +98,3 @@ class WordpressPluginsDownloader:
         lines.sort()
         with open(file_path, "w") as file:
             file.writelines(lines)
-
-        print(f"Wordlist sorted and saved to {file_path}")
