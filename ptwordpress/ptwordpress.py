@@ -170,14 +170,15 @@ def get_help():
 
 def parse_args():
     parser = argparse.ArgumentParser(add_help="False", description=f"{SCRIPTNAME} <options>", allow_abbrev=False)
-    parser.add_argument("-u",   "--url",             type=str, required=True)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("-u", "--url", type=str, help="Provide a URL")
+    group.add_argument("-dl", "--download", type=str, nargs="?", const=True)
     parser.add_argument("-p",   "--proxy",           type=str)
     parser.add_argument("-sm",  "--save-media",      type=str)
     parser.add_argument("-w",   "--wordlist",        type=str)
     parser.add_argument("-c",   "--cookie",          type=str)
     parser.add_argument("-o",   "--output",          type=str)
     parser.add_argument("-wpsk", "--wpscan-key",     type=str)
-    parser.add_argument("-dl",  "--download",        type=str, nargs="?", const=True)
     parser.add_argument("-a",   "--user-agent",      type=str, default="Penterep Tools")
     parser.add_argument("-ar", "--author-range",     type=ptmisclib.parse_range, default=(1, 10))
     parser.add_argument("-ir", "--id-range",         type=ptmisclib.parse_range, default=(1, 10))
