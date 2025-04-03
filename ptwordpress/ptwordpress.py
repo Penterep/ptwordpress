@@ -20,10 +20,10 @@
 
 import argparse
 import os
+import urllib
 import sys; sys.path.append(__file__.rsplit("/", 1)[0])
 
 from _version import __version__
-
 from ptlibs import ptjsonlib, ptprinthelper, ptmisclib, ptnethelper, ptnethelper
 from ptlibs.ptprinthelper import ptprint
 from ptlibs.http.http_client import HttpClient
@@ -51,6 +51,7 @@ class PtWordpress:
         self.is_enum_protected: bool     = None # Server returns 429 too many requests error
         self.wp_version: str             = None
         self.http_client                 = HttpClient(args=self.args, ptjsonlib=self.ptjsonlib)
+        self.http_client._store_urls     = True
         self.helpers                     = Helpers(args=self.args, ptjsonlib=self.ptjsonlib)
         self.BASE_URL, self.REST_URL     = self.helpers.construct_wp_api_url(args.url)
 
@@ -59,7 +60,9 @@ class PtWordpress:
         self.base_response: object = self.helpers._get_base_response(url=self.BASE_URL, instance_to_run=self)
 
         self.rest_response, self.rss_response, self.robots_txt_response = self.helpers.fetch_responses_in_parallel() # Parallel response retrieval
+
         self.helpers.check_if_target_is_wordpress(base_response=self.base_response, wp_json_response=None)
+
         self.is_cloudflare = self.helpers.check_if_behind_cloudflare(base_response=self.base_response)
 
         self.head_method_allowed: bool      = self.helpers._is_head_method_allowed(url=self.BASE_URL)
@@ -76,17 +79,19 @@ class PtWordpress:
         Hashes(self.args).get_hashes_from_favicon(response=self.base_response)
         self.helpers.parse_google_identifiers(response=self.base_response)
         self.helpers.extract_and_print_html_comments(response=self.base_response)
-
         self.wp_version = self.helpers.get_wordpress_version(base_response=self.base_response, rss_response=self.rss_response, meta_tags=meta_tags, head_method_allowed=self.head_method_allowed)
 
         self.helpers.print_supported_wordpress_versions(wp_version=self.wp_version) # From API
         self.helpers.print_robots_txt(robots_txt_response=self.robots_txt_response)
         self.helpers.process_sitemap(robots_txt_response=self.robots_txt_response)
         self.source_discover.discover_xml_rpc()
+
         self.source_discover.wordlist_discovery("admins", title="admin pages", show_responses=True)
+
         self.source_discover.wordlist_discovery("configs", title="configuration files or pages")
         self.source_discover.wordlist_discovery("dangerous", title="access to dangerous scripts", method="get")
         self.source_discover.wordlist_discovery("settings", title="settings files")
+
         self.source_discover.wordlist_discovery("directories", title="directory listing", search_in_response="index of", method="get")
         self.source_discover.wordlist_discovery("fpd", title="Full Path Disclosure vulnerability", method="get")
         self.source_discover.wordlist_discovery("logs", title="log files")
@@ -111,6 +116,13 @@ class PtWordpress:
         self.email_scraper.print_result()
 
         media_urls: list = self.source_discover.print_media(self.user_discover.get_user_list()) # Scrape all uploaded public media
+
+        # Parse unique directories, add media to it & run directory listing test
+        _directories = self.http_client._extract_unique_directories(target_domain=urllib.parse.urlparse(self.BASE_URL).netloc, urls=media_urls)
+        _directories.extend(self.http_client._extract_unique_directories(target_domain=urllib.parse.urlparse(self.BASE_URL).netloc))
+        self.source_discover.wordlist_discovery(list(set(_directories)), title="directory listing", search_in_response="index of", method="get")
+
+
         if self.args.save_media:
             MediaDownloader(args=self.args).save_media(media_urls)
 
@@ -131,7 +143,8 @@ def get_help():
         ]},
         {"options": [
             ["-u",  "--url",                    "<url>",                "Connect to URL"],
-            ["-rm",  "--readme",               "",                      "Enable readme dictionary attacks"],
+            ["-rm",  "--readme",                "",                     "Enable readme dictionary attacks"],
+            ["-pd",  "--plugins",               "",                     "Enable plugins directory attacks"],
             ["-o",  "--output",                 "<file>",               "Save emails, users, logins and media urls to files"],
             ["-sm",  "--save-media",            "<folder>",             "Save media to folder"],
             ["-T",  "--timeout",                "<seconds>",            "Set Timeout"],
@@ -140,12 +153,13 @@ def get_help():
             ["-a", "--user-agent",              "<agent>",              "Set User-Agent"],
             ["-d", "--delay",                   "<miliseconds>",        "Set delay before each request"],
             ["-ar", "--author-range",           "<author-range>",       "Set custom range for author enumeration (e.g. 1000-1300)"],
-            ["-w", "--wordlist",                "<wordlist>",           "Set custom wordlist directory"],
+            ["-w", "--wordlist",                "<directory>",          "Set custom wordlist directory"],
             ["-H",  "--headers",                "<header:value>",       "Set Header(s)"],
             ["-wpsk", "--wpscan-key",           "<api-key>",            "Set WPScan API key (https://wpscan.com)"],
             ["-t",  "--threads",                "<threads>",            "Number of threads (default 10)"],
             ["-r",  "--redirects",              "",                     "Follow redirects (default False)"],
             ["-dl",  "--download",              "<directory>",          "Download all versions of Wordpress"],
+            ["-gp",  "--get-plugins",           "",                     "Retrieve list of all plugins from wordpress.com api (save in wordlist directory)"],
             ["-C",  "--cache",                  "",                     "Cache HTTP communication"],
             ["-v",  "--version",                "",                     "Show script version and exit"],
             ["-h",  "--help",                   "",                     "Show this help message and exit"],
