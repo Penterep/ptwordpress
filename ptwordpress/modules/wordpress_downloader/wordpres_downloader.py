@@ -27,7 +27,7 @@ class WordpressDownloader:
 
         print("WP Download path:",  self.downloads_dir)
         os.makedirs(self.downloads_dir, exist_ok=True)
-        self.max_parallel_downloads = 5  # Number of parallel downloads
+        self.max_parallel_downloads = 5
         self.main()
 
     def load_existing_hashes(self):
@@ -124,7 +124,7 @@ class WordpressDownloader:
         with ThreadPoolExecutor(max_workers=self.max_parallel_downloads) as executor:
             futures = [executor.submit(self.download_and_check_svg, version, existing_hashes) for version in versions]
             for future in tqdm(futures, desc="Downloading versions", total=len(versions)):
-                future.result()  # Wait for each task to finish
+                future.result()
 
     def filter_versions(self, versions):
         """
@@ -165,7 +165,6 @@ class WordpressDownloader:
     def main(self,):
         existing_hashes = self.load_existing_hashes()
 
-        # If hashes.json is missing, rebuild from existing downloads
         if not existing_hashes:
             print("hashes.json is missing, rebuilding from existing downloads...")
             self.process_existing_downloads(existing_hashes)
