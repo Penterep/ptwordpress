@@ -22,7 +22,7 @@ setuptools.setup(
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)"
     ],
     python_requires='>=3.9',
-    install_requires=["ptlibs>=1.0.20,<2", "bs4", "lxml", "defusedxml", "tqdm"],
+    install_requires=["ptlibs>=1.0.21,<2", "bs4", "lxml", "defusedxml", "tqdm"],
     entry_points = {'console_scripts': ['ptwordpress = ptwordpress.ptwordpress:main']},
     include_package_data= True,
     long_description=long_description,
