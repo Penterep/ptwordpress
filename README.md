@@ -26,23 +26,36 @@ source ~/.zshrc
 
 ## Usage examples
 ```
-ptwordpress -u htttps://www.example.com/
+ptwordpress -u https://www.example.com
+ptwordpress -u https://www.example.com -wu ~/mywordlist
+ptwordpress -u https://www.example.com -o ./example -sm ./media
 ```
 
 ## Options
 ```
--u     --url         <url>           Connect to URL
--wpsk  --wpscan-key  <api-key>       Set WPScan API key
--p     --proxy       <proxy>         Set Proxy
--T     --timeout                     Set Timeout
--c     --cookie      <cookie>        Set Cookie
--a     --user-agent  <a>             Set User-Agent
--H     --headers     <header:value>  Set Header(s)
--r     --redirects                   Follow redirects (default False)
--C     --cache                       Cache HTTP communication
--v     --version                     Show script version and exit
--h     --help                        Show this help message and exit
--j     --json                        Output in JSON format
+-u     --url           <url>           Connect to URL
+-rm    --readme                        Enable readme dictionary attacks
+-pd    --plugins                       Enable plugins directory attacks
+-o     --output        <file>          Save emails, users, logins and media urls to files
+-sm    --save-media    <folder>        Save media to folder
+-T     --timeout       <seconds>       Set Timeout
+-p     --proxy         <proxy>         Set Proxy
+-c     --cookie        <cookie>        Set Cookie
+-a     --user-agent    <agent>         Set User-Agent
+-d     --delay         <miliseconds>   Set delay before each request
+-ar    --author-range  <author-range>  Set custom range for author enumeration (e.g. 1000-1300)
+-w     --wordlist      <directory>     Set custom wordlist directory
+-H     --headers       <header:value>  Set Header(s)
+-wpsk  --wpscan-key    <api-key>       Set WPScan API key (https://wpscan.com)
+-t     --threads       <threads>       Number of threads (default 10)
+-r     --redirects                     Follow redirects (default False)
+-dl    --download      <directory>     Download all versions of Wordpress
+-gp    --get-plugins                   Retrieve list of all plugins from wordpress.com api (save in wordlist directory)
+-C     --cache                         Cache HTTP communication
+-v     --version                       Show script version and exit
+-h     --help                          Show this help message and exit
+-j     --json                          Output in JSON format
+
 ```
 
 ## Dependencies
