@@ -144,7 +144,7 @@ def get_help():
         {"options": [
             ["-u",  "--url",                    "<url>",                "Connect to URL"],
             ["-rm",  "--readme",                "",                     "Enable readme dictionary attacks"],
-            ["-pd",  "--plugins",               "",                     "Enable plugins directory attacks"],
+            ["-pd",  "--plugins",               "",                     "Enable plugins dictionary attacks"],
             ["-o",  "--output",                 "<file>",               "Save emails, users, logins and media urls to files"],
             ["-sm",  "--save-media",            "<folder>",             "Save media to folder"],
             ["-T",  "--timeout",                "<seconds>",            "Set Timeout"],
