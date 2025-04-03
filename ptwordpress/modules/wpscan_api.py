@@ -15,13 +15,17 @@ class WPScanAPI:
 
     def run(self, wp_version: str, plugins: list, themes: list):
         ptprint(f"WPScan:", "INFO", not self.args.json, colortext=True, newline_above=True)
-        if not self.API_KEY:
-            ptprint(f"API key is required for WPScan information (--wpscan-key)", "WARNING", condition=not self.args.json, indent=4)
+        if not self.API_KEY or len(self.API_KEY) != 43:
+            ptprint(f"Valid API key is required for WPScan information (--wpscan-key)", "WARNING", condition=not self.args.json, indent=4)
             return
 
         json_data = self.get_user_status_plan()
         if json_data.get('requests_remaining') == -1:
             ptprint(f"No requests remaining", "TEXT", condition=not self.args.json, indent=4)
+            return
+
+        if json_data.get('status', '').lower() == "forbidden":
+            ptprint(f"Forbidden", "TEXT", condition=not self.args.json, indent=4)
             return
 
         else:
