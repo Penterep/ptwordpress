@@ -84,12 +84,10 @@ class WordpressPluginsDownloader:
             return set()
 
     def save_wordlist(self, plugins):
-        # Append only new plugins to the wordlist file
         if plugins:
             with open(self.wordlist_path, "a") as f:
                 f.write("\n".join(plugins) + "\n")
 
-        # Update the in-memory set of existing plugins
         self.existing_plugins.update(plugins)
 
     def sort_wordlist(self):
