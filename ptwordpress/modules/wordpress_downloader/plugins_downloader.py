@@ -15,8 +15,7 @@ class WordpressPluginsDownloader:
             self.downloads_dir = os.path.join(download_path, "downloads")
 
         os.makedirs(self.downloads_dir, exist_ok=True)
-        self.wordlist_path = os.path.join(, "plugins_wordlist.txt")
-        self.wordlist_path2 = os.path.join(self.downloads_dir, "plugins_wordlist.txt") # path to wordlists/ of ptwordpress
+        self.wordlist_path = os.path.join(self.downloads_dir, "plugins_big.txt")
         self.args = args
         self.existing_plugins = set()
         self.load_existing_plugins()
@@ -89,6 +88,8 @@ class WordpressPluginsDownloader:
                 f.write("\n".join(plugins) + "\n")
 
         self.existing_plugins.update(plugins)
+
+        self.sort_wordlist()
 
     def sort_wordlist(self):
         file_path = self.wordlist_path
