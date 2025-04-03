@@ -37,8 +37,9 @@ from modules.routes_walker import APIRoutesWalker
 from modules.plugins.hashes import Hashes
 from modules.helpers import print_api_is_not_available
 from modules.helpers import Helpers
-from modules.wordpress_downloader.wordpres_downloader import WordpressDownloader
 
+from modules.wordpress_downloader.wordpres_downloader import WordpressDownloader
+from modules.wordpress_downloader.plugins_downloader import WordpressPluginsDownloader
 
 class PtWordpress:
     def __init__(self, args):
@@ -64,16 +65,17 @@ class PtWordpress:
         self.helpers.check_if_target_is_wordpress(base_response=self.base_response, wp_json_response=None)
 
         self.is_cloudflare = self.helpers.check_if_behind_cloudflare(base_response=self.base_response)
-
         self.head_method_allowed: bool      = self.helpers._is_head_method_allowed(url=self.BASE_URL)
         self.target_is_case_sensitive: bool = self.helpers.check_case_sensitivity(url=self.BASE_URL)
 
+
         self.source_discover: object     = SourceDiscover(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed, self.target_is_case_sensitive)
         self.user_discover: object       = UserDiscover(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
-        self.wpscan_api: object         = WPScanAPI(args, self.ptjsonlib)
-        self.email_scraper: object      = get_emails_instance(args=self.args)
+        self.wpscan_api: object          = WPScanAPI(args, self.ptjsonlib)
+        self.email_scraper: object       = get_emails_instance(args=self.args)
 
         meta_tags = self.helpers.extract_and_print_meta_tags(response=self.base_response)
+
 
         self.helpers.parse_site_info_from_rest(rest_response=self.rest_response, base_response=self.base_response, is_cloudflare=self.is_cloudflare)
         Hashes(self.args).get_hashes_from_favicon(response=self.base_response)
@@ -107,6 +109,8 @@ class PtWordpress:
             self.source_discover.wordlist_discovery("readme_small_root", title="readme files in root directory")
 
         plugins = self.source_discover.plugin_themes_discovery(response=self.base_response, content_type="plugin")
+        if self.args.plugins:
+            self.source_discover.wordlist_discovery("plugins_big", title="big plugins")
         themes = self.source_discover.plugin_themes_discovery(response=self.base_response, content_type="theme")
 
         self.wpscan_api.run(wp_version=self.wp_version, plugins=plugins, themes=themes)
@@ -121,7 +125,6 @@ class PtWordpress:
         _directories = self.http_client._extract_unique_directories(target_domain=urllib.parse.urlparse(self.BASE_URL).netloc, urls=media_urls)
         _directories.extend(self.http_client._extract_unique_directories(target_domain=urllib.parse.urlparse(self.BASE_URL).netloc))
         self.source_discover.wordlist_discovery(list(set(_directories)), title="directory listing", search_in_response="index of", method="get")
-
 
         if self.args.save_media:
             MediaDownloader(args=self.args).save_media(media_urls)
@@ -146,7 +149,7 @@ def get_help():
             ["-rm",  "--readme",                "",                     "Enable readme dictionary attacks"],
             ["-pd",  "--plugins",               "",                     "Enable plugins dictionary attacks"],
             ["-o",  "--output",                 "<file>",               "Save emails, users, logins and media urls to files"],
-            ["-sm",  "--save-media",            "<folder>",             "Save media to folder"],
+            ["-sm",  "--save-media",            "<folder>",             "Save (download) found media to <folder>"],
             ["-T",  "--timeout",                "<seconds>",            "Set Timeout"],
             ["-p",  "--proxy",                  "<proxy>",              "Set Proxy"],
             ["-c",  "--cookie",                 "<cookie>",             "Set Cookie"],
@@ -172,7 +175,8 @@ def parse_args():
     parser = argparse.ArgumentParser(add_help="False", description=f"{SCRIPTNAME} <options>", allow_abbrev=False)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("-u", "--url", type=str, help="Provide a URL")
-    group.add_argument("-dl", "--download", type=str, nargs="?", const=True)
+    group.add_argument("-dl", "--download", nargs="?", const=True, help="Download mode")
+    group.add_argument("-gp", "--get-plugins", nargs="?", const=True, help="Get plugins mode")
     parser.add_argument("-p",   "--proxy",           type=str)
     parser.add_argument("-sm",  "--save-media",      type=str)
     parser.add_argument("-w",   "--wordlist",        type=str)
@@ -183,6 +187,7 @@ def parse_args():
     parser.add_argument("-ar", "--author-range",     type=ptmisclib.parse_range, default=(1, 10))
     parser.add_argument("-ir", "--id-range",         type=ptmisclib.parse_range, default=(1, 10))
     parser.add_argument("-H",  "--headers",          type=ptmisclib.pairs, nargs="+")
+    parser.add_argument("-pd", "--plugins",          action="store_true", help="Plugins attack")
     parser.add_argument("-r",  "--redirects",        action="store_true")
     parser.add_argument("-rm",  "--readme",          action="store_true")
     parser.add_argument("-C",  "--cache",            action="store_true")
@@ -191,7 +196,6 @@ def parse_args():
     parser.add_argument("-v",  "--version",          action='version', version=f'{SCRIPTNAME} {__version__}')
     parser.add_argument("-T",   "--timeout",         type=int, default=10)
     parser.add_argument("-t",   "--threads",         type=int, default=10)
-
     parser.add_argument("--socket-address",          type=str, default=None)
     parser.add_argument("--socket-port",             type=str, default=None)
     parser.add_argument("--process-ident",           type=str, default=None)
@@ -200,6 +204,12 @@ def parse_args():
         sys.exit(0)
 
     args = parser.parse_args()
+
+    # Conditional validation: URL must be provided unless -dl or -gp is used
+    if not args.url and not (args.download or args.get_plugins):
+        sys.exit("The --url argument is required unless --download or --get-plugins is specified.")
+
+
     args.timeout = args.timeout if not args.proxy else None
     args.proxy = {"http": args.proxy, "https": args.proxy} if args.proxy else None
     args.headers = ptnethelper.get_request_headers(args)
@@ -209,7 +219,11 @@ def parse_args():
 
     if args.download:
         WordpressDownloader(download_path=args.download)
-        sys.exit(1)
+        sys.exit(0)
+
+    if args.get_plugins:
+        WordpressPluginsDownloader(args=args, download_path=args.get_plugins).run()
+        sys.exit(0)
 
     if args.wordlist:
         args.wordlist = os.path.abspath(args.wordlist)
