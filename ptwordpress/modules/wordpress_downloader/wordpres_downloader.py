@@ -13,18 +13,19 @@ __version__ = "0.0.1"
 
 class WordpressDownloader:
     def __init__(self, download_path=None):
-        self.db_file = os.path.join(self.downloads_dir, "hashes.json")
 
         if not download_path:
             return
 
         if isinstance(download_path, bool):
-            self.downloads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wp-downloads")
+            self.downloads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads", "wp")
 
         elif download_path:
-            self.downloads_dir = os.path.join(download_path , "wp-downloads")
+            self.downloads_dir = os.path.join(download_path , "downloads", "wp")
 
-        print("Download path:",  self.downloads_dir)
+        self.db_file = os.path.join(os.path.dirname(self.downloads_dir), "hashes.json")
+
+        print("WP Download path:",  self.downloads_dir)
         os.makedirs(self.downloads_dir, exist_ok=True)
         self.max_parallel_downloads = 5  # Number of parallel downloads
         self.main()
@@ -55,7 +56,7 @@ class WordpressDownloader:
 
 
         # Save this filtered data to a new JSON file (optional)
-        with open(os.path.join(self.downloads_dir, "release-badges-hashes.json"), "w") as f:
+        with open(os.path.join(os.path.dirname(self.downloads_dir), "release-badges-hashes.json"), "w") as f:
             json.dump(modified_hashes, f, indent=4)
 
         return modified_hashes
