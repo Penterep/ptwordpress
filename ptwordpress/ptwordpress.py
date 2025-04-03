@@ -149,7 +149,7 @@ def get_help():
             ["-rm",  "--readme",                "",                     "Enable readme dictionary attacks"],
             ["-pd",  "--plugins",               "",                     "Enable plugins dictionary attacks"],
             ["-o",  "--output",                 "<file>",               "Save emails, users, logins and media urls to files"],
-            ["-sm",  "--save-media",            "<folder>",             "Save (download) found media to <folder>"],
+            ["-sm",  "--save-media",            "<folder>",             "Save media to folder"],
             ["-T",  "--timeout",                "<seconds>",            "Set Timeout"],
             ["-p",  "--proxy",                  "<proxy>",              "Set Proxy"],
             ["-c",  "--cookie",                 "<cookie>",             "Set Cookie"],
