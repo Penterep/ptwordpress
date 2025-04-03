@@ -13,7 +13,8 @@ __version__ = "0.0.1"
 
 class WordpressDownloader:
     def __init__(self, download_path=None):
-        self.db_file = "hashes.json"
+        self.db_file = os.path.join(self.downloads_dir, "hashes.json")
+
         if not download_path:
             return
 
@@ -54,7 +55,7 @@ class WordpressDownloader:
 
 
         # Save this filtered data to a new JSON file (optional)
-        with open("release-badges-hashes.json", "w") as f:
+        with open(os.path.join(self.downloads_dir, "release-badges-hashes.json"), "w") as f:
             json.dump(modified_hashes, f, indent=4)
 
         return modified_hashes
