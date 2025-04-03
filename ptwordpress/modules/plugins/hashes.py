@@ -18,7 +18,9 @@ class Hashes:
     def get_hashes_from_favicon(self, response = None):
         hashes: dict = self.calculate_hashes(response.content)
 
-        ptprinthelper.ptprint("Favicon.ico hashes (etag)", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
+        ptprinthelper.ptprint("Favicon.ico", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
+        if response.headers.get("etag"):
+            ptprinthelper.ptprint(f'Etag{' '*(10-len("etag"))}{response.headers.get("etag").replace("\"", "")}', "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True, end="\n")
         for hash_type, hash_value in hashes.items():
             ptprinthelper.ptprint(f"{hash_type}{' '*(10-len(hash_type))}{hash_value.lower()}", "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True, end="\n")
 
