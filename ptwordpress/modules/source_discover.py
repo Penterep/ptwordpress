@@ -111,6 +111,7 @@ class SourceDiscover:
         try:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
             response = self.http_client.send_request(url, method=method, headers=self.args.headers, allow_redirects=False)
+            """
             if (wordlist == "fpd"):
                 pattern = r"(?:in\s+)([a-zA-Z]:\\[\\\w.-]+|/[\w./-]+)"
                 matches: list = re.findall(pattern, response.text, re.IGNORECASE)
@@ -120,6 +121,7 @@ class SourceDiscover:
                     return url
                 else:
                     return
+            """
 
             if response.status_code == 200 and search_in_response in response.text.lower():
                 if (wordlist == "dangerous") and \
