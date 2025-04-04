@@ -390,7 +390,7 @@ class Helpers:
             "robots": self.BASE_URL + "/robots.txt",
         }
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             futures = {name: executor.submit(fetch, url) for name, url in urls.items()}
             responses = {name: future.result() for name, future in futures.items()}
             return responses["rest"], responses["rss"], responses["robots"]
