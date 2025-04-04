@@ -3,8 +3,10 @@ import socket
 import re
 import os
 import csv
+import time
 import sys
 import concurrent.futures
+import itertools
 
 import requests
 
@@ -21,11 +23,25 @@ from bs4 import BeautifulSoup, Comment
 
 
 class Helpers:
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        """Ensures that only one instance of the class is created"""
+        if not cls._instance:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self, args, ptjsonlib):
-        self.args = args
-        self.ptjsonlib = ptjsonlib
-        self.BASE_URL, self.REST_URL = self.construct_wp_api_url(args.url)
-        self.http_client = HttpClient(args=self.args, ptjsonlib=self.ptjsonlib)
+        if not hasattr(self, '_initialized'): # This ensures __init__ is only called once
+            if args is None or ptjsonlib is None:
+                raise ValueError("Both 'args' and 'ptjsonlib' must be provided")
+
+            self.args = args
+            self.ptjsonlib = ptjsonlib
+            self.BASE_URL, self.REST_URL = self.construct_wp_api_url(args.url)
+            self.http_client = HttpClient(args=self.args, ptjsonlib=self.ptjsonlib)
+            self._block_wait = self.args.block_wait
+            self._initialized = True  # Flag to indicate that initialization is complete
 
     def print_response_headers(self, response):
         """Print all response headers"""
@@ -417,6 +433,37 @@ class Helpers:
                 ptprint(f"[err]", "TEXT", not self.args.json)
             self.ptjsonlib.end_error(f"Error retrieving response from server.", self.args.json)
 
+    def _check_if_blocked_by_server(self, url):
+
+        # Check if the server is available
+        def check_server_availability():
+            try:
+                response = requests.head(url, proxies=self.args.proxy, verify=False if self.args.proxy else True)
+                return response.status_code == 200  # Assuming 200 means available
+            except requests.RequestException:
+                return False
+
+
+        block_wait = self._block_wait
+        if not check_server_availability():
+            if block_wait is None:
+                self.ptjsonlib.end_error("The tested server has banned you. Not all tests were completed.", self.args.json)
+            else:
+                # If delay wasn't explicitly set by the user, default to 1 second
+                if self.args.delay == 0:
+                    self.args.delay = 1000  # in miliseconds
+
+                # Reduce thread count to 1 to minimize server load
+                self.args.threads = 1
+
+                dot_cycle = itertools.cycle([".", "..", "..."])
+                while not check_server_availability():
+                    dots = next(dot_cycle)
+                    self.args.delay += 2000
+
+                    # Increase delay by 2 seconds each cycle to be more gentle to the server
+                    ptprinthelper.ptprint(ptprinthelper.get_colored_text(f"    The tested server has banned you. Waiting for unblocking{dots} | Increasing delay between requests to {self.args.delay // 1000} seconds...", "WARNING"), "TEXT", indent=4, end="\r")
+                    time.sleep(block_wait / 1000.0)
 
 def print_api_is_not_available(status_code):
     ptprinthelper.ptprint(f"API is not available" + (f" [{str(status_code)}]" if status_code else ""), "WARNING", condition=True, indent=4)
