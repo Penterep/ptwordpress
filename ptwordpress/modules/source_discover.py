@@ -16,7 +16,7 @@ from modules.file_writer import write_to_file
 from ptlibs.http.http_client import HttpClient
 
 
-from modules.helpers import print_api_is_not_available, load_wordlist_file
+from modules.helpers import print_api_is_not_available, load_wordlist_file, Helpers
 
 
 class SourceDiscover:
@@ -33,7 +33,7 @@ class SourceDiscover:
         self.scheme      = self.extract_result.scheme
         self.full_domain = f"{self.scheme}://{self.domain}"
         self.target_is_case_sensitive = target_is_case_sensitive
-
+        self.helpers = Helpers(args=self.args, ptjsonlib=self.ptjsonlib)
         self.http_client = HttpClient()
 
     def discover_xml_rpc(self):
@@ -101,6 +101,9 @@ class SourceDiscover:
             ptprinthelper.ptprint(f"No {title} discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
         else:
             ptprinthelper.ptprint(f" ", "", condition=not self.args.json, end="", flush=True, indent=4, clear_to_eol=True)
+
+        self.helpers._check_if_blocked_by_server(self.BASE_URL)
+
 
 
     def check_url(self, url, wordlist=None, show_responses=False, search_in_response="", method=None):
