@@ -463,8 +463,27 @@ class Helpers:
                     self.args.delay += 2000
 
                     # Increase delay by 2 seconds each cycle to be more gentle to the server
-                    ptprinthelper.ptprint(ptprinthelper.get_colored_text(f"    The tested server has banned you. Waiting for unblocking{dots} | Increasing delay between requests to {self.args.delay // 1000} seconds...", "WARNING"), "TEXT", indent=4, end="\r")
+                    ptprinthelper.ptprint(ptprinthelper.get_colored_text(f"The tested server has banned you. Waiting for unblocking{dots} | Increasing delay between requests to {self.args.delay // 1000} seconds...", "WARNING"), "TEXT", indent=4, end="\r")
                     time.sleep(block_wait / 1000.0)
+
+    def _extract_all_links_from_homepage(self, response):
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        base_domain = urllib.parse.urlparse(response.url).netloc
+
+        tags_with_links = soup.find_all(['a', 'link', 'script', 'img', 'iframe', 'frame', 'object'],
+                                        href=True) + soup.find_all(['script', 'img', 'iframe', 'object'], src=True)
+
+        for tag in tags_with_links:
+            link_url = tag.get('href') or tag.get('src')
+
+            # Convert relative URLs to absolute using urljoin
+            absolute_url = urllib.parse.urljoin(response.url, link_url)
+            # Check if the URL belongs to the same domain (either relative or same domain)
+            if urllib.parse.urlparse(absolute_url).netloc == base_domain:
+                if absolute_url not in self.http_client._stored_urls:
+                    self.http_client._stored_urls.add(absolute_url)
+
 
 def print_api_is_not_available(status_code):
     ptprinthelper.ptprint(f"API is not available" + (f" [{str(status_code)}]" if status_code else ""), "WARNING", condition=True, indent=4)
@@ -493,3 +512,4 @@ def load_wordlist_file(wordlist_file: str, args_wordlist):
           # If no wordlist argument is provided, use the default path
             path = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", wordlist_file)
     return path
+

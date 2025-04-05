@@ -35,8 +35,7 @@ from modules.source_discover import SourceDiscover
 from modules.wpscan_api import WPScanAPI
 from modules.routes_walker import APIRoutesWalker
 from modules.plugins.hashes import Hashes
-from modules.helpers import print_api_is_not_available
-from modules.helpers import Helpers
+from modules.helpers import Helpers, print_api_is_not_available, load_wordlist_file
 
 from modules.wordpress_downloader.wordpres_downloader import WordpressDownloader
 from modules.wordpress_downloader.plugins_downloader import WordpressPluginsDownloader
@@ -62,6 +61,7 @@ class PtWordpress:
 
         self.rest_response, self.rss_response, self.robots_txt_response = self.helpers.fetch_responses_in_parallel() # Parallel response retrieval
         self.helpers.check_if_target_is_wordpress(base_response=self.base_response, wp_json_response=None)
+        self.helpers._extract_all_links_from_homepage(self.base_response)
 
         self.is_cloudflare = self.helpers.check_if_behind_cloudflare(base_response=self.base_response)
         self.head_method_allowed: bool      = self.helpers._is_head_method_allowed(url=self.BASE_URL)
@@ -92,14 +92,12 @@ class PtWordpress:
         self.helpers.process_sitemap(robots_txt_response=self.robots_txt_response)
         self.source_discover.discover_xml_rpc()
         self.helpers._check_if_blocked_by_server(self.base_response.url)
-
         self.source_discover.wordlist_discovery("admins", title="admin pages", show_responses=True)
 
         self.source_discover.wordlist_discovery("configs", title="configuration files or pages")
         self.source_discover.wordlist_discovery("dangerous", title="access to dangerous scripts", method="get")
         self.source_discover.wordlist_discovery("settings", title="settings files")
 
-        self.source_discover.wordlist_discovery("directories", title="directory listing", search_in_response="index of", method="get")
         self.source_discover.wordlist_discovery("fpd", title="Full Path Disclosure vulnerability", method="get")
         self.source_discover.wordlist_discovery("logs", title="log files")
         self.source_discover.wordlist_discovery("managements", title="management interface")
@@ -126,10 +124,14 @@ class PtWordpress:
 
         media_urls: list = self.source_discover.print_media(self.user_discover.get_user_list()) # Scrape all uploaded public media
 
+
         # Parse unique directories, add media to it & run directory listing test
-        _directories = self.http_client._extract_unique_directories(target_domain=urllib.parse.urlparse(self.BASE_URL).netloc, urls=media_urls)
-        _directories.extend(self.http_client._extract_unique_directories(target_domain=urllib.parse.urlparse(self.BASE_URL).netloc))
+        self.http_client._stored_urls.update(open(load_wordlist_file("directories.txt", args_wordlist=self.args.wordlist)).readlines())
+        self.http_client._stored_urls.update(media_urls)
+
+        _directories = self.http_client._extract_unique_directories(target_domain=urllib.parse.urlparse(self.BASE_URL).netloc)
         self.source_discover.wordlist_discovery(list(set(_directories)), title="directory listing", search_in_response="index of", method="get")
+
 
         if self.args.save_media:
             MediaDownloader(args=self.args).save_media(media_urls)

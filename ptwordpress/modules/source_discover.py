@@ -2,19 +2,17 @@ import os
 import re
 import requests
 import http.client
+import concurrent.futures
 from itertools import chain
 from queue import Queue
-import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from ptlibs import ptprinthelper
-from ptlibs.ptprinthelper import ptprint
 import ptlibs.tldparser as tldparser
-
-from modules.file_writer import write_to_file
+from ptlibs.ptprinthelper import ptprint
+from ptlibs import ptprinthelper
 
 from ptlibs.http.http_client import HttpClient
-
+from modules.file_writer import write_to_file
 
 from modules.helpers import print_api_is_not_available, load_wordlist_file, Helpers
 
@@ -105,13 +103,11 @@ class SourceDiscover:
         self.helpers._check_if_blocked_by_server(self.BASE_URL)
 
 
-
     def check_url(self, url, wordlist=None, show_responses=False, search_in_response="", method=None):
         method = method or ("HEAD" if self.head_method_allowed else "GET")
         try:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
             response = self.http_client.send_request(url, method=method, headers=self.args.headers, allow_redirects=False)
-            """
             if (wordlist == "fpd"):
                 pattern = r"(?:in\s+)([a-zA-Z]:\\[\\\w.-]+|/[\w./-]+)"
                 matches: list = re.findall(pattern, response.text, re.IGNORECASE)
@@ -121,8 +117,6 @@ class SourceDiscover:
                     return url
                 else:
                     return
-            """
-
             if response.status_code == 200 and search_in_response in response.text.lower():
                 if (wordlist == "dangerous") and \
                    (("/wp-admin/maint/repair.php" in url) and ("define('WP_ALLOW_REPAIR', true);".lower() in response.text.lower())) or \
@@ -253,9 +247,9 @@ class SourceDiscover:
         if content_type == "theme":
             ptprint('\n    '.join(names), "TEXT", condition=not self.args.json, indent=4)
 
-        # Directory listing test in all resources
-        self.wordlist_discovery(["/"], url_path=paths_to_resources, title=f"directory listing of {content_type}s", search_in_response="index of", method="get")
 
+        ## Extend found directories to test for directory listing
+        self.http_client._stored_urls.update(paths_to_resources)
 
         # Readme test in all resources
         if self.args.readme:
