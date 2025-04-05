@@ -447,6 +447,7 @@ class Helpers:
         block_wait = self._block_wait
         if not check_server_availability():
             if block_wait is None:
+                ptprint(f" ", "TEXT", not self.args.json)
                 self.ptjsonlib.end_error("The tested server has banned you. Not all tests were completed.", self.args.json)
             else:
                 # If delay wasn't explicitly set by the user, default to 1 second
