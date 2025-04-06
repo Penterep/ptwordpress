@@ -27,7 +27,7 @@ source ~/.zshrc
 ## Usage examples
 ```
 ptwordpress -u https://www.example.com
-ptwordpress -u https://www.example.com -wu ~/mywordlist
+ptwordpress -u https://www.example.com -w ~/mywordlist
 ptwordpress -u https://www.example.com -o ./example -sm ./media
 ```
 
