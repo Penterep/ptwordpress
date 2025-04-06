@@ -102,21 +102,14 @@ class SourceDiscover:
 
         self.helpers._check_if_blocked_by_server(self.BASE_URL)
 
-
     def check_url(self, url, wordlist=None, show_responses=False, search_in_response="", method=None):
         method = method or ("HEAD" if self.head_method_allowed else "GET")
         try:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
             response = self.http_client.send_request(url, method=method, headers=self.args.headers, allow_redirects=False)
             if (wordlist == "fpd"):
-                pattern = r"(?:in\s+)([a-zA-Z]:\\[\\\w.-]+|/[\w./-]+)"
-                matches: list = re.findall(pattern, response.text, re.IGNORECASE)
-                if matches:
-                    ptprinthelper.ptprint(f"[{response.status_code}] {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-                    ptprint("".join(matches), "ADDITIONS", colortext=True, condition=not self.args.json, end="\n", flush=True, indent=8, clear_to_eol=True)
-                    return url
-                else:
-                    return
+                return [True]
+
             if response.status_code == 200 and search_in_response in response.text.lower():
                 if (wordlist == "dangerous") and \
                    (("/wp-admin/maint/repair.php" in url) and ("define('WP_ALLOW_REPAIR', true);".lower() in response.text.lower())) or \
