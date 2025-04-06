@@ -20,12 +20,13 @@ class WPScanAPI:
             return
 
         json_data = self.get_user_status_plan()
-        if json_data.get('requests_remaining') == -1:
-            ptprint(f"No requests remaining", "TEXT", condition=not self.args.json, indent=4)
+
+        if json_data.get('status', '').lower() == "unauthorized":
+            ptprint(f"Not authorized", "WARNING", condition=not self.args.json, indent=4)
             return
 
-        if json_data.get('status', '').lower() == "forbidden":
-            ptprint(f"Forbidden", "TEXT", condition=not self.args.json, indent=4)
+        if json_data.get('requests_remaining') == -1:
+            ptprint(f"No requests remaining", "WARNING", condition=not self.args.json, indent=4)
             return
 
         else:
