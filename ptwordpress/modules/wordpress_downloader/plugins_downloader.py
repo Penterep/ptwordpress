@@ -15,7 +15,7 @@ class WordpressPluginsDownloader:
             self.downloads_dir = os.path.join(download_path, "downloads")
 
         os.makedirs(self.downloads_dir, exist_ok=True)
-        self.wordlist_path = os.path.join(self.downloads_dir, "plugins_big.txt")
+        self.wordlist_path = os.path.join(self.downloads_dir, "plugins.txt")
         self.args = args
         self.existing_plugins = set()
         self.load_existing_plugins()
