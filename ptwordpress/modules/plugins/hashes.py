@@ -15,7 +15,18 @@ class Hashes:
         self.emails = set()
         self.args = args
 
-    def get_hashes_from_favicon(self, response = None):
+    def get_hashes_from_response_content(self, response = None):
+        """
+        Calculates and prints hash values (MD5, SHA1, SHA256) for the content of a given HTTP response.
+
+        Parameters:
+            response (requests.Response): The HTTP response object containing the content to hash.
+
+        Behavior:
+            - Calls `calculate_hashes` to generate hash values from the response content.
+            - If available, prints the ETag header.
+            - Displays the hash values in a formatted manner using `ptprinthelper`.
+        """
         hashes: dict = self.calculate_hashes(response.content)
 
         ptprinthelper.ptprint("Favicon.ico", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
@@ -25,6 +36,16 @@ class Hashes:
             ptprinthelper.ptprint(f"{hash_type}{' '*(10-len(hash_type))}{hash_value.lower()}", "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True, end="\n")
 
     def calculate_hashes(self, data):
+        """
+        Computes MD5, SHA1, and SHA256 hash values for the given binary data.
+
+        Parameters:
+            data (bytes): The binary content to hash.
+
+        Returns:
+            dict: A dictionary containing the hash type as key and the corresponding hash as a lowercase hexadecimal string.
+                Example: {'MD5': '...', 'SHA1': '...', 'SHA256': '...'}
+        """
         hashes = {
             'MD5': hashlib.md5(data).hexdigest(),
             'SHA1': hashlib.sha1(data).hexdigest(),
