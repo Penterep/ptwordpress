@@ -64,7 +64,7 @@ class SourceDiscover:
         if not self.target_is_case_sensitive:
             lines = sorted(set(word.lower() for word in lines))
 
-        if wordlist == "plugins_big":
+        if wordlist == "plugins":
             lines = [f"/wp-content/plugins/{line}" for line in lines]
 
         tested_files = (path.strip() for path in lines if not path.rstrip().endswith('.'))
@@ -108,6 +108,7 @@ class SourceDiscover:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
             response = self.http_client.send_request(url, method=method, headers=self.args.headers, allow_redirects=False)
             if (wordlist == "fpd"):
+
                 return [True]
 
             if response.status_code == 200 and search_in_response in response.text.lower():
@@ -160,7 +161,7 @@ class SourceDiscover:
                 raise ValueError
         except Exception as e:
             print_api_is_not_available(status_code=getattr(response, "status_code", None))
-            return
+            return set()
 
         # Try get a parse Page 2-99
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
