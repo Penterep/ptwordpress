@@ -81,23 +81,19 @@ class PtWordpress:
         self.helpers.parse_site_info_from_rest(rest_response=self.rest_response, base_response=self.base_response, is_cloudflare=self.is_cloudflare)
 
         self.helpers.collect_favicon_hashes_from_html(response=self.base_response)
-
         self.helpers.parse_google_identifiers(response=self.base_response)
         self.helpers.extract_and_print_html_comments(response=self.base_response)
         self.wp_version = self.helpers.get_wordpress_version(base_response=self.base_response, rss_response=self.rss_response, meta_tags=meta_tags, head_method_allowed=self.head_method_allowed)
 
-
-        self.helpers.print_supported_wordpress_versions(wp_version=self.wp_version) # From API
+        self.helpers.print_supported_wordpress_versions(wp_version=self.wp_version)
         self.helpers.print_robots_txt(robots_txt_response=self.robots_txt_response)
         self.helpers.process_sitemap(robots_txt_response=self.robots_txt_response)
         self.source_discover.discover_xml_rpc()
         self.helpers._check_if_blocked_by_server(self.base_response.url)
         self.source_discover.wordlist_discovery("admins", title="admin pages", show_responses=True)
-
         self.source_discover.wordlist_discovery("configs", title="configuration files or pages")
         self.source_discover.wordlist_discovery("dangerous", title="access to dangerous scripts", method="get")
         self.source_discover.wordlist_discovery("settings", title="settings files")
-
         self.source_discover.wordlist_discovery("fpd", title="Full Path Disclosure vulnerability", method="get")
         self.source_discover.wordlist_discovery("logs", title="log files")
         self.source_discover.wordlist_discovery("managements", title="management interface")
