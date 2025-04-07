@@ -6,6 +6,7 @@ import csv
 import time
 import sys
 import concurrent.futures
+from http import HTTPStatus
 import itertools
 
 import requests
@@ -73,7 +74,6 @@ class Helpers:
             "Google AdSense Publisher ID" : r"(ca-pub-\d{16})|(ca-ads-\d{16})",
             "Google API Keys": r"AIza[0-9A-z_\-\\]{35}",
         }
-
         found_identifiers = {}
         for key, regex in regulars.items():
             matches = re.findall(regex, response.text)
@@ -484,6 +484,61 @@ class Helpers:
                 if absolute_url not in self.http_client._stored_urls:
                     self.http_client._stored_urls.add(absolute_url)
 
+    def collect_favicon_hashes_from_html(self, response):
+        """
+            Extracts all favicon-related URLs from the HTML source of a given HTTP response,
+            downloads each file, and calculates their MD5, SHA1, and SHA256 hashes.
+
+            Behavior:
+                - Parses the HTML for <link> tags with 'href' attributes containing 'favicon',
+                'apple-touch-icon', 'mask-icon', etc.
+                - Adds /favicon.ico manually to ensure it's included even if not in the HTML.
+                - Follows redirects and processes each unique URL once.
+                - Downloads each resource and computes its hashes using `calculate_hashes`.
+                - Prints each favicon URL and its corresponding hash values.
+
+            Parameters:
+                response (requests.Response): The HTTP response object containing HTML content.
+
+            Note:
+                Useful for identifying shared favicon usage (e.g., WordPress default icon)
+                and potential fingerprinting based on hash values.
+        """
+        ptprinthelper.ptprint(f"Favicons.ico", "TITLE", condition=not self.args.json, colortext=True, newline_above=True, end="")
+
+        try:
+            soup = BeautifulSoup(response.text, 'lxml')
+            base_url = response.url
+        except Exception as e:
+            return
+
+
+        favicon_urls = set()
+        for link in soup.find_all('link'):
+            rel = link.get('rel', [])
+            href = link.get('href', '')
+            if any(keyword in str(rel) for keyword in ['icon', 'apple-touch-icon', 'mask-icon']) or 'favicon' in href:
+                full_url = urllib.parse.urljoin(base_url, href)
+                favicon_urls.add(full_url)
+
+        favicon_urls.add(urllib.parse.urljoin(base_url, '/favicon.ico'))
+        for favicon_url in favicon_urls:
+            try:
+                ptprinthelper.ptprint(ptprinthelper.get_colored_text(favicon_url, "TITLE"), "TEXT", condition=not self.args.json, flush=True, clear_to_eol=True, colortext="TITLE", newline_above=True, indent=4)
+                fav_response = self.http_client.send_request(favicon_url)
+                if fav_response.status_code == 200 and fav_response.content:
+                    hashes = Hashes(args=self.args).calculate_hashes(fav_response.content)
+
+
+                    if fav_response.headers.get("etag"):
+                        ptprinthelper.ptprint(f'Etag{" " * (10 - len("etag"))}{fav_response.headers.get("etag").replace("\"", "")}', "ADDITIONS", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True, end="\n")
+
+                    for hash_type, hash_value in hashes.items():
+                        ptprinthelper.ptprint(f"{hash_type}{' ' * (10 - len(hash_type))}{hash_value.lower()}", "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True, end="\n")
+                else:
+                    ptprinthelper.ptprint(f"[{fav_response.status_code}] {HTTPStatus(fav_response.status_code).phrase} {'- Image contains errors' if fav_response.status_code == 200 else ''} ", "ADDITIONS", condition=not self.args.json, colortext=True, indent=4)
+            except Exception as e:
+                ptprinthelper.ptprint(f"Error downloading favicon: {e}", "WARNING", condition=not self.args.json, flush=True, clear_to_eol=True, indent=4)
 
 def print_api_is_not_available(status_code):
     ptprinthelper.ptprint(f"API is not available" + (f" [{str(status_code)}]" if status_code else ""), "WARNING", condition=True, indent=4)
