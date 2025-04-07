@@ -65,6 +65,7 @@ class PtWordpress:
 
         self.is_cloudflare = self.helpers.check_if_behind_cloudflare(base_response=self.base_response)
         self.head_method_allowed: bool      = self.helpers._is_head_method_allowed(url=self.BASE_URL)
+
         self.target_is_case_sensitive: bool = self.helpers.check_case_sensitivity(url=self.BASE_URL)
 
         self.helpers._check_if_blocked_by_server(self.base_response.url)
@@ -77,10 +78,9 @@ class PtWordpress:
         meta_tags = self.helpers.extract_and_print_meta_tags(response=self.base_response)
         self.helpers._check_if_blocked_by_server(self.base_response.url)
 
-
         self.helpers.parse_site_info_from_rest(rest_response=self.rest_response, base_response=self.base_response, is_cloudflare=self.is_cloudflare)
 
-        Hashes(self.args).get_hashes_from_favicon(response=self.base_response)
+        self.helpers.collect_favicon_hashes_from_html(response=self.base_response)
 
         self.helpers.parse_google_identifiers(response=self.base_response)
         self.helpers.extract_and_print_html_comments(response=self.base_response)
@@ -113,7 +113,7 @@ class PtWordpress:
 
         plugins = self.source_discover.plugin_themes_discovery(response=self.base_response, content_type="plugin")
         if self.args.plugins:
-            self.source_discover.wordlist_discovery("plugins_big", title="big plugins")
+            self.source_discover.wordlist_discovery("plugins", title="Dictionary plugins")
         themes = self.source_discover.plugin_themes_discovery(response=self.base_response, content_type="theme")
 
         self.wpscan_api.run(wp_version=self.wp_version, plugins=plugins, themes=themes)
@@ -124,14 +124,12 @@ class PtWordpress:
 
         media_urls: list = self.source_discover.print_media(self.user_discover.get_user_list()) # Scrape all uploaded public media
 
-
         # Parse unique directories, add media to it & run directory listing test
         self.http_client._stored_urls.update(open(load_wordlist_file("directories.txt", args_wordlist=self.args.wordlist)).readlines())
         self.http_client._stored_urls.update(media_urls)
 
         _directories = self.http_client._extract_unique_directories(target_domain=urllib.parse.urlparse(self.BASE_URL).netloc)
         self.source_discover.wordlist_discovery(list(set(_directories)), title="directory listing", search_in_response="index of", method="get")
-
 
         if self.args.save_media:
             MediaDownloader(args=self.args).save_media(media_urls)
