@@ -5,18 +5,62 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class WordpressPluginsDownloader:
-    def __init__(self, args, download_path=None):
-        download_path = download_path
-        if isinstance(download_path, bool):
-            self.downloads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
-        else:
-            if not download_path:
-                return
-            self.downloads_dir = os.path.join(download_path, "downloads")
+    def __init__(self, args, ptjsonlib, download_path=None):
+        """
+        Initializes the WordpressPluginsDownloader.
 
-        os.makedirs(self.downloads_dir, exist_ok=True)
-        self.wordlist_path = os.path.join(self.downloads_dir, "plugins.txt")
+        This constructor determines the correct file path to save the plugin wordlist.
+        - If `download_path` is `True`, the default path '../wordlists/plugins.txt' is used.
+        - If a directory is provided, 'plugins.txt' will be created in that directory.
+        - If only a filename is provided, the file is created in the current working directory.
+        - If a full file path is provided, it is used directly.
+
+        The method ensures the path is valid, writable, and prepares the file for writing.
+
+        Args:
+            args: Arbitrary arguments passed to the downloader (custom use).
+            ptjsonlib: Utility library expected to contain an `end_error` method for error handling.
+            download_path (str or bool, optional): Path to a directory, a filename, or a full path.
+                                                   If True, default path is used.
+
+        Raises:
+            SystemExit: If the path is not writable or cannot be created.
+        """
+        if not download_path:
+            return
+
+        if download_path is True:
+            # Use default path if True is passed
+            self.output_file = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'wordlists', 'plugins.txt'))
+        else:
+            # Normalize user-provided path
+            download_path = os.path.expanduser(str(download_path))    # Support for ~/ paths
+
+            if os.path.isdir(download_path):
+                # It's a directory -> save to plugins.txt inside it
+                self.output_file = os.path.join(download_path, 'plugins.txt')
+            elif os.path.basename(download_path) == download_path:
+                # It's just a filename (no directory part) -> save to current working directory
+                self.output_file = os.path.join(os.getcwd(), download_path)
+            else:
+                # It's a full file path
+                self.output_file = download_path
+
+        try:
+            # Create directory if it doesn't exist and ensure file exists
+            os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
+            with open(self.output_file, 'a'):
+                os.utime(self.output_file, None)
+        except Exception as e:
+            ptjsonlib.end_error(f"Cannot create or access the file: {e}")
+            sys.exit(1)
+
+        if not os.access(self.output_file, os.W_OK):
+            ptjsonlib.end_error("File is read only.")
+            sys.exit(1)
+
         self.args = args
+        self.wordlist_path = self.output_file
         self.existing_plugins = set()
         self.load_existing_plugins()
 
@@ -45,8 +89,11 @@ class WordpressPluginsDownloader:
         if initial_response.status_code != 200:
             print("Failed to fetch initial page")
             return
-
-        initial_data = initial_response.json()
+        try:
+            initial_data = initial_response.json()
+        except Exception as e:
+            #print(e)
+            return
         total_pages = initial_data["info"].get("pages")
 
         print(f"Pages to download: {total_pages}")
