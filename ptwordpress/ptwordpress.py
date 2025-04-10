@@ -52,6 +52,7 @@ class PtWordpress:
         self.wp_version: str             = None
         self.http_client                 = HttpClient(args=self.args, ptjsonlib=self.ptjsonlib)
         self.http_client._store_urls     = True
+        self.http_client._base_headers        = self.args.headers
         self.helpers                     = Helpers(args=self.args, ptjsonlib=self.ptjsonlib)
         self.BASE_URL, self.REST_URL     = self.helpers.construct_wp_api_url(args.url)
 
@@ -90,6 +91,7 @@ class PtWordpress:
         self.helpers.process_sitemap(robots_txt_response=self.robots_txt_response)
         self.source_discover.discover_xml_rpc()
         self.helpers._check_if_blocked_by_server(self.base_response.url)
+
         self.source_discover.wordlist_discovery("admins", title="admin pages", show_responses=True)
         self.source_discover.wordlist_discovery("configs", title="configuration files or pages")
         self.source_discover.wordlist_discovery("dangerous", title="access to dangerous scripts", method="get")
@@ -112,7 +114,10 @@ class PtWordpress:
             self.source_discover.wordlist_discovery("plugins", title="Dictionary plugins")
         themes = self.source_discover.plugin_themes_discovery(response=self.base_response, content_type="theme")
 
-        self.wpscan_api.run(wp_version=self.wp_version, plugins=plugins, themes=themes)
+        try:
+            self.wpscan_api.run(wp_version=self.wp_version, plugins=plugins, themes=themes)
+        except Exception as e:
+            pass
         self.helpers.parse_namespaces_from_rest(rest_response=self.rest_response)
 
         self.user_discover.run()
@@ -164,7 +169,7 @@ def get_help():
             ["-t",  "--threads",                "<threads>",            "Number of threads (default 10)"],
             ["-r",  "--redirects",              "",                     "Follow redirects (default False)"],
             ["-dl",  "--download",              "<directory>",          "Download all versions of Wordpress"],
-            ["-gp",  "--get-plugins",           "",                     "Retrieve list of all plugins from wordpress.com api (save in wordlist directory)"],
+            ["-gp",  "--get-plugins",           "<filename>",           "Retrieve list of all plugins from wordpress.com api (default plugins.txt in wordlist directory)"],
             ["-C",  "--cache",                  "",                     "Cache HTTP communication"],
             ["-v",  "--version",                "",                     "Show script version and exit"],
             ["-h",  "--help",                   "",                     "Show this help message and exit"],
@@ -220,11 +225,11 @@ def parse_args():
         args.output = os.path.abspath(args.output)
 
     if args.download:
-        WordpressDownloader(download_path=args.download)
+        WordpressDownloader(download_path=args.download, ptjsonlib=ptjsonlib.PtJsonLib())
         sys.exit(0)
 
     if args.get_plugins:
-        WordpressPluginsDownloader(args=args, download_path=args.get_plugins).run()
+        WordpressPluginsDownloader(args=args, ptjsonlib=ptjsonlib.PtJsonLib(), download_path=args.get_plugins).run()
         sys.exit(0)
 
     if args.wordlist:
