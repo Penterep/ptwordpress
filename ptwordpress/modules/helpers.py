@@ -54,13 +54,8 @@ class Helpers:
         """Checks if target runs wordpress, if not script will be terminated."""
         if not any(substring in base_response.text.lower() for substring in ["wp-content/", "wp-includes/", "wp-json/"]):
             ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, indent=0)
-            try:
-                response = self.http_client.send_request(self.BASE_URL + "/wp-content/", headers=self.args.headers, allow_redirects=False)
-                if response.status_code != 404:
-                    self.ptjsonlib.end_error(f"WordPress discovered but target URL is not posible to test. Check for redirect and try another URL.", self.args.json)
-            except requests.exceptions.RequestException:
-                pass
             self.ptjsonlib.end_error(f"Target doesn't seem to be running wordpress.", self.args.json)
+
 
     def parse_google_identifiers(self, response):
         ptprinthelper.ptprint(f"Google identifiers", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
@@ -96,10 +91,10 @@ class Helpers:
 
     def check_case_sensitivity(self, url):
         """Returns True if target is case sensitive by testing favicon"""
-        response = self.http_client.send_request(self.BASE_URL + "/favicon.ico", headers=self.args.headers, allow_redirects=True)
+        response = self.http_client.send_request(self.BASE_URL + "/favicon.ico", allow_redirects=True)
 
         url_to_favicon_uppercase = '/'.join([response.url.rsplit("/", 1)[0], response.url.rsplit("/", 1)[1].upper()]) # Path to favicon coverted to upper case
-        response2 = self.http_client.send_request(url_to_favicon_uppercase, headers=self.args.headers, allow_redirects=False)
+        response2 = self.http_client.send_request(url_to_favicon_uppercase, allow_redirects=False)
         ptprint(f"Case sensitivity", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
 
         if response2.status_code == 200:
@@ -118,7 +113,7 @@ class Helpers:
     def _is_head_method_allowed(self, url) -> bool:
         """Tests if HEAD method is allowed on target url"""
         try:
-            response = self.http_client.send_request(url=f"{self.BASE_URL}/favicon.ico", method="HEAD", allow_redirects=True, headers=self.args.headers)
+            response = self.http_client.send_request(url=f"{self.BASE_URL}/favicon.ico", method="HEAD", allow_redirects=True)
             return True if response.status_code == 200 else False
         except:
             return False
@@ -255,7 +250,7 @@ class Helpers:
             return formatted_output
 
         ptprint(f"Supported version", "TITLE", not self.args.json, colortext=True, newline_above=True)
-        response = self.http_client.send_request("https://api.wordpress.org/core/version-check/1.7/", allow_redirects=False, headers=self.args.headers)
+        response = self.http_client.send_request("https://api.wordpress.org/core/version-check/1.7/", allow_redirects=False)
 
         latest_available_version: str = response.json()["offers"][0]["version"]
         supported_versions: list = []
@@ -281,7 +276,7 @@ class Helpers:
         """Test sitemap"""
         ptprint(f"Sitemap", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
         try:
-            sitemap_response = self.http_client.send_request(self.BASE_URL + "/sitemap.xml", allow_redirects=False, headers=self.args.headers)
+            sitemap_response = self.http_client.send_request(self.BASE_URL + "/sitemap.xml", allow_redirects=False)
             if sitemap_response.status_code == 200:
                 ptprint(f"Sitemap exists: {sitemap_response.url}", "OK", condition=not self.args.json, indent=4)
             elif sitemap_response.is_redirect:
@@ -303,7 +298,7 @@ class Helpers:
         """Retrieve wordpress version from metatags, rss feed, API, ... """
         ptprint(f"Wordpress version", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
         wp_version = None
-        svg_badge_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-admin/images/about-release-badge.svg", method="GET", allow_redirects=False, headers=self.args.headers)
+        svg_badge_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-admin/images/about-release-badge.svg", method="GET", allow_redirects=False)
         if svg_badge_response.status_code == 200:
             ptprinthelper.ptprint(f"{svg_badge_response.url}", "VULN", condition=not self.args.json, indent=4, end="")
             _found = False
@@ -317,7 +312,7 @@ class Helpers:
             if not _found:
                 ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json)
 
-        opml_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-links-opml.php", method="GET", allow_redirects=False, headers=self.args.headers)
+        opml_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-links-opml.php", method="GET", allow_redirects=False)
         if opml_response.status_code == 200:
             wp_version = re.findall(r"WordPress.*(\d\.\d\.[\d.]+)", opml_response.text)
             if wp_version:
@@ -438,11 +433,10 @@ class Helpers:
         # Check if the server is available
         def check_server_availability():
             try:
-                response = requests.head(url, proxies=self.args.proxy, verify=False if self.args.proxy else True)
-                return response.status_code == 200  # Assuming 200 means available
+                response = self.http_client.send_request(url)
+                return response.status_code == 200
             except requests.RequestException:
                 return False
-
 
         block_wait = self._block_wait
         if not check_server_availability():
@@ -504,7 +498,7 @@ class Helpers:
                 Useful for identifying shared favicon usage (e.g., WordPress default icon)
                 and potential fingerprinting based on hash values.
         """
-        ptprinthelper.ptprint(f"Favicons.ico", "TITLE", condition=not self.args.json, colortext=True, newline_above=True, end="")
+        ptprinthelper.ptprint(f"Favicons", "TITLE", condition=not self.args.json, colortext=True, newline_above=True, end="")
 
         try:
             soup = BeautifulSoup(response.text, 'lxml')
