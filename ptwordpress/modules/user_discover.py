@@ -9,6 +9,7 @@ import ptlibs.tldparser as tldparser
 import defusedxml.ElementTree as ET
 from ptlibs import ptprinthelper
 from threading import Lock
+import json
 
 from modules.file_writer import write_to_file
 
@@ -37,14 +38,22 @@ class UserDiscover:
         self.http_client = HttpClient()
 
     def run(self):
-        self._enumerate_users_by_rss_feed()
-        self._enumerate_users_by_author_name()        # example.com/author/<author>
-        self._enumerate_users_by_author_id()          # example.com/?author=<id>
-        self.enumerate_by_users()                     # example.com/wp-json/wp/v2/users
-        self.scrape_users_by_posts()
-        self.print_enumerated_users_table()
-        self.print_unique_logins()
-        self.yoast_scraper.print_result()
+        methods = [
+                self._enumerate_users_by_rss_feed,
+                self._enumerate_users_by_author_name,
+                self._enumerate_users_by_author_id,
+                self.enumerate_by_users,
+                self.scrape_users_by_posts,
+                self.print_enumerated_users_table,
+                self.print_unique_logins,
+                self.yoast_scraper.print_result,
+            ]
+
+        for method in methods:
+            try:
+                method()
+            except Exception as e:
+                continue
 
     def print_unique_logins(self):
         users = list(self.RESULT_QUERY.queue)
@@ -105,16 +114,17 @@ class UserDiscover:
         ptprinthelper.ptprint(f"User enumeration via API users ({self.BASE_URL}/wp-json/wp/v2/users)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         is_vuln = False
         for i in range(1, 100):
-            response = self.http_client.send_request(f"{self.REST_URL}/wp/v2/users/?per_page=100&page={i}", method="GET", headers=self.args.headers)
+            response = self.http_client.send_request(f"{self.REST_URL}/wp/v2/users/?per_page=100&page={i}", method="GET")
+            data = self.load_prepare_response_json(response)
 
             if response.status_code == 200:
                 try:
-                    if not response.json():
+                    if not data:
                         break
                 except:
                     break
 
-                for user_object in response.json():
+                for user_object in data:
                     result = {"id": str(user_object.get("id", "")), "slug": user_object.get("slug", ""), "name": user_object.get("name", "")}
                     ptprinthelper.ptprint(f"{result['id']}{' '*(8-len(result['id']))}{result['slug']}{' '*(40-len(result['slug']))}{result['name']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
 
@@ -139,23 +149,23 @@ class UserDiscover:
         def fetch_page(page):
             url = f"{self.REST_URL}/wp/v2/posts/?per_page=100&page={page}"
             try:
-                response = self.http_client.send_request(url, method="GET", headers=self.args.headers)
+                response = self.http_client.send_request(url, method="GET")
                 with self.thread_lock:
                     self.email_scraper.parse_emails_from_response(response=response)
 
-                posts: list = response.json() # List
+                posts: list = self.load_prepare_response_json(response) #response.json() # List
                 return posts if response.status_code == 200 else []
             except Exception as e:
                 return []
 
         # Request to first page
-        response = self.http_client.send_request(url=f"{self.REST_URL}/wp/v2/posts/?per_page=100&page=1", method="GET", headers=self.args.headers)
+        response = self.http_client.send_request(url=f"{self.REST_URL}/wp/v2/posts/?per_page=100&page=1", method="GET")
+        data = self.load_prepare_response_json(response)
+
         if response.status_code != 200:
             print_api_is_not_available(status_code=getattr(response, "status_code", None))
             return
-
-        all_posts.extend(response.json())
-
+        all_posts.extend(data)
         # Scrape rest of pages
         with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
             for page in range(2, 999, 5):
@@ -164,22 +174,19 @@ class UserDiscover:
 
                 if any(not posts for posts in pages):  # If any page of the batch returns empty list, stop sending more requests
                     break
-
             self.yoast_scraper.parse_posts(data=all_posts)
 
-            for post in all_posts:
-                user = {"id": str(post.get("author", "")), "slug": "", "name": ""}
-                if user["id"] in seen_users:
-                    continue
-
-                seen_users.add(user["id"])
-
-                user = self.map_user_id_to_slug(user_id=user["id"])
-                if not user["slug"] and not user["name"]:
-                    ptprinthelper.ptprint(f"ID: {user['id']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
-                else:
-                    ptprinthelper.ptprint(f"{user['id']}{' '*(8-len(user['id']))}{user['slug']}{' '*(40-len(user['slug']))}{user['name']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
-                enumerated_users.append(user)
+        for post in all_posts:
+            user = {"id": str(post.get("author", "")), "slug": "", "name": ""}
+            if user["id"] in seen_users:
+                continue
+            seen_users.add(user["id"])
+            user = self.map_user_id_to_slug(user_id=user["id"])
+            if not user["slug"] and not user["name"]:
+                ptprinthelper.ptprint(f"ID: {user['id']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+            else:
+                ptprinthelper.ptprint(f"{user['id']}{' '*(8-len(user['id']))}{user['slug']}{' '*(40-len(user['slug']))}{user['name']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+            enumerated_users.append(user)
 
         if enumerated_users:
             for user in enumerated_users:
@@ -192,7 +199,7 @@ class UserDiscover:
         def check_author_id(author_id: int):
             url = f"{self.BASE_URL}/?author={author_id}"
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = self.http_client.send_request(url, method="GET", headers=self.args.headers, allow_redirects=False)
+            response = self.http_client.send_request(url, method="GET", allow_redirects=False)
             max_length = len(str(self.args.author_range[-1])) - len(str(author_id))
             user_id = response.url.split("=")[-1]
             if response.status_code == 200:
@@ -206,7 +213,7 @@ class UserDiscover:
                 location = (self.BASE_URL + location) if location and location.startswith("/") else location
 
                 # Extracts username from Location header if possible.
-                new_response = self.http_client.send_request(location, method="GET", headers=self.args.headers, allow_redirects=False) # For title extraction
+                new_response = self.http_client.send_request(location, method="GET", allow_redirects=False) # For title extraction
 
                 name_from_title = self._extract_name_from_title(new_response)
                 if not name_from_title:
@@ -245,7 +252,7 @@ class UserDiscover:
             """Thread function"""
             url = f"{self.BASE_URL}/author/{author_name}/"
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = self.http_client.send_request(url, method="GET", headers=self.args.headers, allow_redirects=False)
+            response = self.http_client.send_request(url, method="GET", allow_redirects=False)
 
             if response.status_code == 200:
                 title = self._extract_name_from_title(response)
@@ -270,11 +277,12 @@ class UserDiscover:
     def _enumerate_users_via_comments(self):
         for i in range(1, 100):
             url = f"{self.REST_URL}/wp/v2/comments/?per_page=100&page={i}"
-            response = self.http_client.send_request(url, method="GET", headers=self.args.headers, allow_redirects=True)
+            response = self.http_client.send_request(url, method="GET", allow_redirects=True)
+            data = self.load_prepare_response_json(response)
             if response.status_code == 200:
-                if not response.json():
+                if not data:
                     break
-                for comment in response.json():
+                for comment in data:
                     author_id, author_name, author_slug = comment.get("author"), comment.get("author"), comment.get("author")
                     if author_id:
                         self.FOUND_AUTHOR_IDS.add(author_id)
@@ -285,9 +293,11 @@ class UserDiscover:
     def map_user_id_to_slug(self, user_id):
         """Retrieve user information by user_id"""
         url = f"{self.REST_URL}/wp/v2/users/{user_id}"
-        response = self.http_client.send_request(url, method="GET", headers=self.args.headers, allow_redirects=True)
+        response = self.http_client.send_request(url, method="GET", allow_redirects=True)
+        data = self.load_prepare_response_json(response)
+
         if response.status_code == 200:
-            result = {"id": user_id, "slug": response.json().get("slug"), "name": response.json().get("name", "")}
+            result = {"id": user_id, "slug": data.get("slug"), "name": data.get("name", "")}
             return result
         else:
             result = {"id": user_id, "slug": "", "name": ""}
@@ -298,7 +308,7 @@ class UserDiscover:
         """User enumeration via RSS feed"""
         ptprinthelper.ptprint(f"User enumeration via RSS feed ({self.BASE_URL}/feed)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         rss_authors = set()
-        response = self.http_client.send_request(f"{self.BASE_URL}/feed", method="GET", headers=self.args.headers)
+        response = self.http_client.send_request(f"{self.BASE_URL}/feed", method="GET")
 
         if response.status_code == 200:
             try:
@@ -322,6 +332,17 @@ class UserDiscover:
         else:
             print_api_is_not_available(status_code=getattr(response, "status_code", None))
 
+    def load_prepare_response_json(self, response):
+        if response.content.startswith(b'\xef\xbb\xbf'):  # BOM for UTF-8
+            response.encoding = 'utf-8-sig'  # Set the encoding to handle BOM
+        try:
+            data = response.json()
+            return data
+        except json.JSONDecodeError:
+            ptprinthelper.ptprint(f"Error parsing response JSON", "ERROR", condition=not self.args.json, indent=4)
+            raise
+
+
     def parse_feed(self, response):
         rss_authors = set()
         try:
@@ -336,7 +357,6 @@ class UserDiscover:
                     rss_authors.add(creator)
                     ptprinthelper.ptprint(f"{creator}", "TEXT", condition=not self.args.json, colortext=False, indent=4+4+4)
         except Exception as e:
-            print(e)
             ptprinthelper.ptprint(f"Error decoding XML feed, Check content of URL manually.", "ERROR", condition=not self.args.json, indent=4+4+4)
         return rss_authors
 
