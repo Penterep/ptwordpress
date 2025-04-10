@@ -1,5 +1,6 @@
 import requests
 import json
+from datetime import datetime
 from ptlibs.ptprinthelper import ptprint
 from ptlibs.http.http_client import HttpClient
 
@@ -7,26 +8,26 @@ class WPScanAPI:
     def __init__(self, args, ptjsonlib):
         self.args = args
         self.ptjsonlib = ptjsonlib
-        self.API_URL = "https://wpscan.com/api/v3"
+        self.API_URL = "https://wpscan.com/wp-json/api/v3"
         self.API_KEY = args.wpscan_key
         self.headers = {}
         self.headers.update({"Authorization": f"Token token={args.wpscan_key}"})
         self.http_client = HttpClient()
 
     def run(self, wp_version: str, plugins: list, themes: list):
-        ptprint(f"WPScan:", "INFO", not self.args.json, colortext=True, newline_above=True)
+        ptprint(f"WPScan", "INFO", not self.args.json, colortext=True, newline_above=True)
         if not self.API_KEY or len(self.API_KEY) != 43:
-            ptprint(f"Valid API key is required for WPScan information (--wpscan-key)", "WARNING", condition=not self.args.json, indent=4)
+            ptprint(f"Valid API key is required for WPScan information (--wpscan-key)", "WARNING", condition=not self.args.json, indent=0)
             return
 
         json_data = self.get_user_status_plan()
 
         if json_data.get('status', '').lower() == "unauthorized":
-            ptprint(f"Not authorized", "WARNING", condition=not self.args.json, indent=4)
+            ptprint(f"Not authorized", "WARNING", condition=not self.args.json, indent=0)
             return
 
-        if json_data.get('requests_remaining') == -1:
-            ptprint(f"No requests remaining", "WARNING", condition=not self.args.json, indent=4)
+        if json_data.get('requests_remaining') < 1:
+            ptprint(f"No requests remaining", "WARNING", condition=not self.args.json, indent=0)
             return
 
         else:
@@ -49,7 +50,7 @@ class WPScanAPI:
         if not version: return
         response_data = self.send_request(url=self.API_URL + f"/wordpresses/{''.join(version.split('.'))}").json()
         if "is_error" in response_data.keys() or any(error_message in response_data.get("status", "") for error_message in ["error", "rate limit hit", "forbidden"]):
-            ptprint(response_data, "TEXT", not self.args.json)
+            ptprint(response_data, "TEXT", not self.args.json, indent=4)
             return
 
         ptprint(f"Wordpress version {version}:", "INFO", not self.args.json, colortext=True)
@@ -77,8 +78,10 @@ class WPScanAPI:
 
     def get_plugin_vulnerabilities(self, plugin: str):
         response_data = self.send_request(url=self.API_URL + f"/plugins/{plugin}").json()
-        if "is_error" in response_data.keys() or any(error_message in response_data.get("status", "") for error_message in ["error", "rate limit hit", "forbidden"]):
+        if "is_error" in response_data.keys():
+            ptprint(response_data.get("status", ""), "TEXT", not self.args.json, indent=4)
             return
+
         if response_data.get(plugin):
             response_data = response_data[plugin]
 
@@ -104,9 +107,8 @@ class WPScanAPI:
 
     def get_theme_vulnerabilities(self, theme: str):
         response_data = self.send_request(url=self.API_URL + f"/themes/{theme}").json()
-
-        if "is_error" in response_data.keys() or any(error_message in response_data.get("status", "") for error_message in ["error", "rate limit hit", "forbidden"]):
-            ptprint(response_data, "TEXT", not self.args.json)
+        if "is_error" in response_data.keys():
+            ptprint(response_data.get("status", ""), "TEXT", not self.args.json, indent=4)
             return
 
         response_data = response_data[theme]
@@ -133,11 +135,25 @@ class WPScanAPI:
     def get_user_status_plan(self):
         url = self.API_URL + "/status"
         response = self.send_request(url=url)
+
+        ptprint(f"User plan: {response.json().get('plan')}", "TEXT", condition=not self.args.json, indent=4)
+        ptprint(f"Remaining requests: {response.json().get('requests_remaining')}", "TEXT", condition=not self.args.json, indent=4)
+        ptprint(f"Requests limit: {response.json().get('requests_limit')}", "TEXT", condition=not self.args.json, indent=4)
+
+        reset_time = datetime.utcfromtimestamp(response.json().get('requests_reset')).strftime('%H:%M:%S')
+        if reset_time != "00:00:00":
+            ptprint(f"Requests reset: {reset_time}", "TEXT", condition=not self.args.json, indent=4)
+
         return response.json()
 
     def send_request(self, url: str, data: dict = {}):
         try:
-            response = self.http_client.send_request(url, method="GET", headers=self.args.headers)
+            response = self.http_client.send_request(url, method="GET", headers=self.headers)
+
+            if response.json().get("status", "") == "rate limit hit":
+                ptprint(f"Rate limit hit", "TEXT", condition=not self.args.json, indent=4)
+                raise
+
             return response
         except Exception as e:
-            pass
+            raise e
