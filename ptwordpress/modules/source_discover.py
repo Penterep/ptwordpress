@@ -36,15 +36,19 @@ class SourceDiscover:
 
     def discover_xml_rpc(self):
         """Discover XML-RPC API"""
-        xml_data = '''<?xml version="1.0" encoding="UTF-8"?>
-        <methodCall>
-          <methodName>system.listMethods</methodName>
-          <params></params>
-        </methodCall>'''
-        ptprinthelper.ptprint(f"Testing for xmlrpc.php availability", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-        response = self.http_client.send_request(f"{self.BASE_URL}/xmlrpc.php", method="POST", data=xml_data, headers=self.args.headers, allow_redirects=False)
-        ptprinthelper.ptprint(f"[{response.status_code}] {response.url}", "TEXT", condition=not self.args.json, indent=4)
-        ptprinthelper.ptprint(f"Script xmlrpc.php is {'available' if response.status_code == 200 else 'not available'}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
+        try:
+            xml_data = '''<?xml version="1.0" encoding="UTF-8"?>
+            <methodCall>
+            <methodName>system.listMethods</methodName>
+            <params></params>
+            </methodCall>'''
+            ptprinthelper.ptprint(f"Testing for xmlrpc.php availability", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+            response = self.http_client.send_request(f"{self.BASE_URL}/xmlrpc.php", method="POST", data=xml_data, allow_redirects=False)
+            ptprinthelper.ptprint(f"[{response.status_code}] {response.url}", "TEXT", condition=not self.args.json, indent=4)
+            ptprinthelper.ptprint(f"Script xmlrpc.php is {'available' if response.status_code == 200 else 'not available'}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
+        except Exception as e:
+            ptprinthelper.ptprint(e, "ERROR", condition=not self.args.json, indent=4)
+            return
 
     def discover_trackback(self):
         """Test wp-trackback.php"""
@@ -106,7 +110,7 @@ class SourceDiscover:
         method = method or ("HEAD" if self.head_method_allowed else "GET")
         try:
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = self.http_client.send_request(url, method=method, headers=self.args.headers, allow_redirects=False)
+            response = self.http_client.send_request(url, method=method, allow_redirects=False)
             if (wordlist == "fpd"):
 
                 return [True]
@@ -139,7 +143,7 @@ class SourceDiscover:
                 scrapped_media = []
                 url = f"{self.BASE_URL}/wp-json/wp/v2/media?page={page}&per_page=100"
                 ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-                response = self.http_client.send_request(url, method="GET", headers=self.args.headers)
+                response = self.http_client.send_request(url, method="GET")
                 if response.status_code == 200 and response.json():
                     for m in response.json():
                         scrapped_media.append({"source_url": m.get("source_url"), "author_id": m.get("author"), "uploaded": m.get("date_gmt"), "modified": m.get("modified_gmt"), "title": m["title"].get("rendered")})
@@ -153,7 +157,7 @@ class SourceDiscover:
         # Try get & parse Page 1
         ptprinthelper.ptprint(f"Discovered media (title, author, uploaded, modified, url)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         try:
-            response = self.http_client.send_request(f"{self.BASE_URL}/wp-json/wp/v2/media?page=1&per_page=100", method="GET", headers=self.args.headers, allow_redirects=False)
+            response = self.http_client.send_request(f"{self.BASE_URL}/wp-json/wp/v2/media?page=1&per_page=100", method="GET", allow_redirects=False)
 
             for m in response.json():
                 result.append({"source_url": m.get("source_url"), "author_id": m.get("author"), "uploaded": m.get("date_gmt"), "modified": m.get("modified_gmt"), "title": m.get("title").get("rendered")})

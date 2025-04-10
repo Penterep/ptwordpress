@@ -15,7 +15,7 @@ class MediaDownloader:
 
     def _download_file(self, url):
         try:
-            response = self.http_client.send_request(url, method="GET", headers=self.args.headers, stream=True)
+            response = self.http_client.send_request(url, method="GET", stream=True)
             response.raise_for_status()
             filename = url.split("/")[-1]
             with open(os.path.join(self.save_path, filename), "wb") as file:
