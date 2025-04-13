@@ -50,6 +50,19 @@ class Helpers:
         for header_name, header_value in response.raw.headers.items():
             ptprint(f"{header_name}: {header_value}", "ADDITIONS", not self.args.json, colortext=True, indent=4)
 
+        interesting_headers = ["Server", "X-Powered-By"]
+
+        filtered_headers = {header: response.headers.get(header) for header in interesting_headers if response.headers.get(header)}
+
+        if filtered_headers:
+            ptprint("Interesting headers", "INFO", not self.args.json, colortext=True, newline_above=True)
+            for header, value in filtered_headers.items():
+                ptprint(f"{header}: {value}", "ADDITIONS", not self.args.json, colortext=True, indent=4)
+        else:
+            ptprint("No interesting headers found.", "TEXT", not self.args.json, indent=4)
+
+
+
     def check_if_target_is_wordpress(self, base_response: object, wp_json_response: object) -> bool:
         """Checks if target runs wordpress, if not script will be terminated."""
         if not any(substring in base_response.text.lower() for substring in ["wp-content/", "wp-includes/", "wp-json/"]):
