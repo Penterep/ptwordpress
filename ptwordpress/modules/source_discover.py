@@ -135,7 +135,7 @@ class SourceDiscover:
         def get_user_slug_or_name(user_id):
             for user in enumerated_users:
                 if user["id"] == str(user_id):
-                    return user.get("slug") or user.get("name")
+                    return user.get("slug") or user.get("name") or user_id
             return str(user_id)
 
         def fetch_page(page):
