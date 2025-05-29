@@ -54,10 +54,16 @@ class Helpers:
 
         filtered_headers = {header: response.headers.get(header) for header in interesting_headers if response.headers.get(header)}
 
+        def contains_digit(value):
+            # Returns True if atleast one character in value is number
+            return any(char.isdigit() for char in value)
+
+
         if filtered_headers:
             ptprint("Interesting headers", "INFO", not self.args.json, colortext=True, newline_above=True)
             for header, value in filtered_headers.items():
-                ptprint(f"{header}: {value}", "ADDITIONS", not self.args.json, colortext=True, indent=4)
+                tag = "VULN" if contains_digit(value) else "WARNING"
+                ptprint(f"{header}: {value}", tag, not self.args.json, indent=4)
         else:
             ptprint("No interesting headers found.", "TEXT", not self.args.json, indent=4)
 
