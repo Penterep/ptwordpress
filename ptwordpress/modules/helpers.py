@@ -336,7 +336,7 @@ class Helpers:
             wp_version = re.findall(r"WordPress.*(\d\.\d\.[\d.]+)", opml_response.text)
             if wp_version:
                 wp_version = wp_version[0]
-                ptprinthelper.ptprint(f"File wp-links-opml.php provide version of Wordpress: {wp_version}", "VULN", condition=not self.args.json, indent=4)
+                ptprinthelper.ptprint(f"File wp-links-opml.php provides version of Wordpress: {wp_version}", "VULN", condition=not self.args.json, indent=4)
                 wp_version = wp_version
 
         # Print meta tags
@@ -384,7 +384,7 @@ class Helpers:
                 break
 
         if _wp_version:
-            ptprinthelper.ptprint(f"RSS feed provide version of Wordpress: {_wp_version}", "VULN", condition=not self.args.json, indent=4)
+            ptprinthelper.ptprint(f"RSS feed provides version of Wordpress: {_wp_version}", "VULN", condition=not self.args.json, indent=4)
         else:
             ptprinthelper.ptprint(f"RSS feed does not provide version of Wordpress", "OK", condition=not self.args.json, indent=4)
 
