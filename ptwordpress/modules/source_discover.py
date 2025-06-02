@@ -1,10 +1,13 @@
+
+import sys
+import io
 import os
 import re
 import requests
 import http.client
 import concurrent.futures
-from itertools import chain
 from queue import Queue
+from itertools import chain
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import ptlibs.tldparser as tldparser
@@ -99,7 +102,7 @@ class SourceDiscover:
         with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
             result = list(executor.map(self.check_url, urls, [wordlist] * len(urls), [show_responses] * len(urls), [search_in_response] * len(urls), [method] * len(urls)))
 
-        if all(r is None for r in result):
+        if all(not r for r in result):
             ptprinthelper.ptprint(f"No {title} discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
         else:
             ptprinthelper.ptprint(f" ", "", condition=not self.args.json, end="", flush=True, indent=4, clear_to_eol=True)
@@ -109,23 +112,25 @@ class SourceDiscover:
     def check_url(self, url, wordlist=None, show_responses=False, search_in_response="", method=None):
         method = method or ("HEAD" if self.head_method_allowed else "GET")
         try:
-            ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = self.http_client.send_request(url, method=method, allow_redirects=False)
+            # If FPD
             if (wordlist == "fpd"):
+                response = self.http_client.send_request(url, method="GET", allow_redirects=False)
+                return getattr(response, "_is_fpd_vuln", False)
 
-                return [True]
-
-            if response.status_code == 200 and search_in_response in response.text.lower():
-                if (wordlist == "dangerous") and \
-                   (("/wp-admin/maint/repair.php" in url) and ("define('WP_ALLOW_REPAIR', true);".lower() in response.text.lower())) or \
-                   (("/wp-admin/maint/wp-signup.php" in url) and ("Registration has been disabled".lower() in response.text.lower())):
-                    return
-
-                ptprinthelper.ptprint(f"[{response.status_code}] {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
-                return url
             else:
-                if show_responses:
-                    ptprinthelper.ptprint(f"[{response.status_code}] {url}", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+                ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
+                response = self.http_client.send_request(url, method=method, allow_redirects=False)
+                if response.status_code == 200 and search_in_response in response.text.lower():
+                    if (wordlist == "dangerous") and \
+                    (("/wp-admin/maint/repair.php" in url) and ("define('WP_ALLOW_REPAIR', true);".lower() in response.text.lower())) or \
+                    (("/wp-admin/maint/wp-signup.php" in url) and ("Registration has been disabled".lower() in response.text.lower())):
+                        return
+
+                    ptprinthelper.ptprint(f"[{response.status_code}] {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+                    return url
+                else:
+                    if show_responses:
+                        ptprinthelper.ptprint(f"[{response.status_code}] {url}", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
 
         except requests.exceptions.RequestException as e:
             return
@@ -284,3 +289,45 @@ class SourceDiscover:
 
             for url in sorted(set(all_urls)):  # Remove duplicates and sort URLs
                 ptprint(url, "ADDITIONS", condition=not self.args.json, indent=8, colortext=True)
+
+
+
+class StdoutRedirector:
+    def __init__(self):
+        self.buffer = io.StringIO()
+        self._stdout_fd = sys.stdout.fileno()
+        self._saved_stdout_fd = None
+        self._pipe_out = None
+        self._pipe_in = None
+
+    def __enter__(self):
+        # vytvoř pipe
+        self._pipe_in, self._pipe_out = os.pipe()
+
+        # zálohuj originální stdout fd
+        self._saved_stdout_fd = os.dup(self._stdout_fd)
+
+        # přesměruj stdout na write konec pipe
+        os.dup2(self._pipe_out, self._stdout_fd)
+
+        # zavři pipe_out (dup2 vytvořil kopii)
+        os.close(self._pipe_out)
+
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # obnov stdout
+        os.dup2(self._saved_stdout_fd, self._stdout_fd)
+        os.close(self._saved_stdout_fd)
+
+        # přečti data z pipe_in
+        output = b""
+        while True:
+            chunk = os.read(self._pipe_in, 1024)
+            if not chunk:
+                break
+            output += chunk
+        os.close(self._pipe_in)
+
+        # dekóduj a ulož do bufferu
+        self.buffer.write(output.decode())
