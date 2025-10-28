@@ -413,7 +413,8 @@ class Helpers:
     def _get_base_response(self, url, instance_to_run):
         """Retrieve base response and handle initial redirects"""
         base_response = self._load_url(url=self.BASE_URL, args=self.args, message="Connecting to URL") # example.com/
-        self.print_response_headers(response=base_response)
+        if "TECH" in self.args.tests:
+            self.print_response_headers(response=base_response)
         if base_response.is_redirect:
             self._handle_redirect(base_response, self.args, instance_to_run=instance_to_run)
         return base_response
