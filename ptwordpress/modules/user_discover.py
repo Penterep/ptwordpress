@@ -38,22 +38,35 @@ class UserDiscover:
         self.http_client = HttpClient()
 
     def run(self):
-        methods = [
-                self._enumerate_users_by_rss_feed,
-                self._enumerate_users_by_author_name,
-                self._enumerate_users_by_author_id,
-                self.enumerate_by_users,
-                self.scrape_users_by_posts,
-                self.print_enumerated_users_table,
-                self.print_unique_logins,
-                self.yoast_scraper.print_result,
-            ]
+        # Mapping tests to their methods
+        test_to_method = {
+            "UESRRSS": self._enumerate_users_by_rss_feed,
+            "USERDICT": self._enumerate_users_by_author_name,
+            "USERPARAM": self._enumerate_users_by_author_id,
+            "USERAPIU": self.enumerate_by_users,
+            "USERAPIP": self.scrape_users_by_posts,
+            "YOAST": self.yoast_scraper.print_result,
+        }
 
-        for method in methods:
-            try:
-                method()
-            except Exception as e:
-                continue
+        selected_tests = set(self.args.tests)
+        user_tests_ran = False  # track if any user-related test ran
+
+        # Run methods for selected tests
+        for test_name, func in test_to_method.items():
+            if test_name in selected_tests:
+                try:
+                    func()
+                    user_tests_ran = True
+                except Exception:
+                    continue
+
+        # Run the print/output functions only if at least one user test ran
+        if user_tests_ran:
+            for func in [self.print_unique_logins, self.print_enumerated_users_table]:
+                try:
+                    func()
+                except Exception:
+                    continue
 
     def print_unique_logins(self):
         users = list(self.RESULT_QUERY.queue)
