@@ -114,7 +114,7 @@ class SourceDiscover:
         try:
             # If FPD
             if (wordlist == "fpd"):
-                response = self.http_client.send_request(url, method="GET", allow_redirects=False)
+                response = self.http_client.send_request(url, method="GET", allow_redirects=False, test_fpd=True)
                 return getattr(response, "_is_fpd_vuln", False)
 
             else:
@@ -163,11 +163,11 @@ class SourceDiscover:
         ptprinthelper.ptprint(f"Discovered media (title, author, uploaded, modified, url)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         try:
             response = self.http_client.send_request(f"{self.BASE_URL}/wp-json/wp/v2/media?page=1&per_page=100", method="GET", allow_redirects=False)
-
             for m in response.json():
                 result.append({"source_url": m.get("source_url"), "author_id": m.get("author"), "uploaded": m.get("date_gmt"), "modified": m.get("modified_gmt"), "title": m.get("title").get("rendered")})
             if response.status_code != 200:
                 raise ValueError
+
         except Exception as e:
             print_api_is_not_available(status_code=getattr(response, "status_code", None))
             return set()
@@ -289,45 +289,3 @@ class SourceDiscover:
 
             for url in sorted(set(all_urls)):  # Remove duplicates and sort URLs
                 ptprint(url, "ADDITIONS", condition=not self.args.json, indent=8, colortext=True)
-
-
-
-class StdoutRedirector:
-    def __init__(self):
-        self.buffer = io.StringIO()
-        self._stdout_fd = sys.stdout.fileno()
-        self._saved_stdout_fd = None
-        self._pipe_out = None
-        self._pipe_in = None
-
-    def __enter__(self):
-        # vytvoř pipe
-        self._pipe_in, self._pipe_out = os.pipe()
-
-        # zálohuj originální stdout fd
-        self._saved_stdout_fd = os.dup(self._stdout_fd)
-
-        # přesměruj stdout na write konec pipe
-        os.dup2(self._pipe_out, self._stdout_fd)
-
-        # zavři pipe_out (dup2 vytvořil kopii)
-        os.close(self._pipe_out)
-
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # obnov stdout
-        os.dup2(self._saved_stdout_fd, self._stdout_fd)
-        os.close(self._saved_stdout_fd)
-
-        # přečti data z pipe_in
-        output = b""
-        while True:
-            chunk = os.read(self._pipe_in, 1024)
-            if not chunk:
-                break
-            output += chunk
-        os.close(self._pipe_in)
-
-        # dekóduj a ulož do bufferu
-        self.buffer.write(output.decode())
