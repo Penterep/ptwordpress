@@ -52,14 +52,14 @@ class PtWordpress:
         self.wp_version: str             = None
         self.http_client                 = HttpClient(args=self.args, ptjsonlib=self.ptjsonlib)
         self.http_client._store_urls     = True
-        self.http_client._base_headers        = self.args.headers
+        self.http_client.test_fpd        = True
+        self.http_client._base_headers   = self.args.headers
         self.helpers                     = Helpers(args=self.args, ptjsonlib=self.ptjsonlib)
         self.BASE_URL, self.REST_URL     = self.helpers.construct_wp_api_url(args.url)
 
     def run(self, args) -> None:
         """Main method"""
         self.base_response: object = self.helpers._get_base_response(url=self.BASE_URL, instance_to_run=self)
-
         self.rest_response, self.rss_response, self.robots_txt_response = self.helpers.fetch_responses_in_parallel() # Parallel response retrieval
         self.helpers.check_if_target_is_wordpress(base_response=self.base_response, wp_json_response=None)
         self.helpers._extract_all_links_from_homepage(self.base_response)
@@ -67,76 +67,170 @@ class PtWordpress:
         self.is_cloudflare = self.helpers.check_if_behind_cloudflare(base_response=self.base_response)
         self.head_method_allowed: bool      = self.helpers._is_head_method_allowed(url=self.BASE_URL)
 
-        self.target_is_case_sensitive: bool = self.helpers.check_case_sensitivity(url=self.BASE_URL)
+        if "TECH" in self.args.tests:
+            self.target_is_case_sensitive: bool = self.helpers.check_case_sensitivity(url=self.BASE_URL)
+        else:
+            self.target_is_case_sensitive = False
 
         self.helpers._check_if_blocked_by_server(self.base_response.url)
 
         self.source_discover: object     = SourceDiscover(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed, self.target_is_case_sensitive)
+
         self.user_discover: object       = UserDiscover(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
         self.wpscan_api: object          = WPScanAPI(args, self.ptjsonlib)
         self.email_scraper: object       = get_emails_instance(args=self.args)
 
-        meta_tags = self.helpers.extract_and_print_meta_tags(response=self.base_response)
+        if "TECH" in self.args.tests:
+            meta_tags = self.helpers.extract_and_print_meta_tags(response=self.base_response)
+
         self.helpers._check_if_blocked_by_server(self.base_response.url)
 
-        self.helpers.parse_site_info_from_rest(rest_response=self.rest_response, base_response=self.base_response, is_cloudflare=self.is_cloudflare)
+        if "INFO" in self.args.tests:
+            self.helpers.parse_site_info_from_rest(rest_response=self.rest_response, base_response=self.base_response, is_cloudflare=self.is_cloudflare)
 
-        self.helpers.collect_favicon_hashes_from_html(response=self.base_response)
-        self.helpers.parse_google_identifiers(response=self.base_response)
-        self.helpers.extract_and_print_html_comments(response=self.base_response)
-        self.wp_version = self.helpers.get_wordpress_version(base_response=self.base_response, rss_response=self.rss_response, meta_tags=meta_tags, head_method_allowed=self.head_method_allowed)
+        if "ICONS" in self.args.tests:
+            self.helpers.collect_favicon_hashes_from_html(response=self.base_response)
 
-        self.helpers.print_supported_wordpress_versions(wp_version=self.wp_version)
-        self.helpers.print_robots_txt(robots_txt_response=self.robots_txt_response)
-        self.helpers.process_sitemap(robots_txt_response=self.robots_txt_response)
-        self.source_discover.discover_xml_rpc()
+        if "GOOGLE" in self.args.tests:
+            self.helpers.parse_google_identifiers(response=self.base_response)
+
+        if "COMMENTS" in self.args.tests:
+            self.helpers.extract_and_print_html_comments(response=self.base_response)
+
+        if "VERSION" in self.args.tests:
+            self.wp_version = self.helpers.get_wordpress_version(base_response=self.base_response, rss_response=self.rss_response, meta_tags=meta_tags, head_method_allowed=self.head_method_allowed)
+            self.helpers.print_supported_wordpress_versions(wp_version=self.wp_version)
+
+        if "ROBOTS" in self.args.tests:
+            self.helpers.print_robots_txt(robots_txt_response=self.robots_txt_response)
+
+        if "SITEMAP" in self.args.tests:
+            self.helpers.process_sitemap(robots_txt_response=self.robots_txt_response)
+
+        if "DANGEROUS" in self.args.tests:
+            self.source_discover.discover_xml_rpc()
+            self.source_discover.wordlist_discovery("dangerous", title="access to dangerous scripts", method="get")
+
         self.helpers._check_if_blocked_by_server(self.base_response.url)
 
-        self.source_discover.wordlist_discovery("admins", title="admin pages", show_responses=True)
-        self.source_discover.wordlist_discovery("configs", title="configuration files or pages")
-        self.source_discover.wordlist_discovery("dangerous", title="access to dangerous scripts", method="get")
-        self.source_discover.wordlist_discovery("settings", title="settings files")
-        self.source_discover.wordlist_discovery("fpd", title="Full Path Disclosure vulnerability", method="get")
-        self.source_discover.wordlist_discovery("logs", title="log files")
-        self.source_discover.wordlist_discovery("managements", title="management interface")
-        self.source_discover.wordlist_discovery("informations", title="information pages")
-        self.source_discover.wordlist_discovery("statistics", title="statistics")
-        self.source_discover.wordlist_discovery("backups", title="backup files or directories")
-        self.source_discover.wordlist_discovery("repositories", title="repositories")
+        if "SETTINGS" in self.args.tests:
+            self.source_discover.wordlist_discovery("settings", title="settings files")
+        if "FPD" in self.args.tests:
+            self.source_discover.wordlist_discovery("fpd", title="Full Path Disclosure vulnerability", method="get")
 
-        if self.args.readme:
-            self.source_discover.wordlist_discovery("readme", title="readme files in root directory")
+        if "ADMIN" in self.args.tests:
+            self.source_discover.wordlist_discovery("admins", title="admin pages", show_responses=True)
+
+        if "CONFIG" in self.args.tests:
+            self.source_discover.wordlist_discovery("configs", title="configuration files or pages")
+
+        if "LOGS" in self.args.tests:
+            self.source_discover.wordlist_discovery("logs", title="log files")
+
+        if "MNGMNT" in self.args.tests:
+            self.source_discover.wordlist_discovery("managements", title="management interface")
+
+        if "INFPG" in self.args.tests:
+            self.source_discover.wordlist_discovery("informations", title="information pages")
+
+        if "STATS" in self.args.tests:
+            self.source_discover.wordlist_discovery("statistics", title="statistics")
+
+        if "BACKUP" in self.args.tests:
+            self.source_discover.wordlist_discovery("backups", title="backup files or directories")
+
+        if "REPO" in self.args.tests:
+            self.source_discover.wordlist_discovery("repositories", title="repositories")
+
+        if "README" in self.args.tests:
+            if self.args.readme:
+                self.source_discover.wordlist_discovery("readme", title="readme files in root directory")
+            else:
+                self.source_discover.wordlist_discovery("readme_small_root", title="readme files in root directory")
+
+        if "PLUGINS" in self.args.tests:
+            plugins: list = self.source_discover.plugin_themes_discovery(response=self.base_response, content_type="plugin")
+            if self.args.plugins:
+                self.source_discover.wordlist_discovery("plugins", title="Dictionary plugins")
+            themes: list = self.source_discover.plugin_themes_discovery(response=self.base_response, content_type="theme")
         else:
-            self.source_discover.wordlist_discovery("readme_small_root", title="readme files in root directory")
+            plugins, themes = [], []
 
-        plugins = self.source_discover.plugin_themes_discovery(response=self.base_response, content_type="plugin")
-        if self.args.plugins:
-            self.source_discover.wordlist_discovery("plugins", title="Dictionary plugins")
-        themes = self.source_discover.plugin_themes_discovery(response=self.base_response, content_type="theme")
+        if "WPS" in self.args.tests:
+            try:
+                self.wpscan_api.run(wp_version=self.wp_version, plugins=plugins, themes=themes)
+            except Exception as e:
+                pass
 
-        try:
-            self.wpscan_api.run(wp_version=self.wp_version, plugins=plugins, themes=themes)
-        except Exception as e:
-            pass
-        self.helpers.parse_namespaces_from_rest(rest_response=self.rest_response)
+        if "API" in self.args.tests:
+            self.helpers.parse_namespaces_from_rest(rest_response=self.rest_response)
 
         self.user_discover.run()
-        self.email_scraper.print_result()
 
-        media_urls: list = self.source_discover.print_media(self.user_discover.get_user_list()) # Scrape all uploaded public media
+        if "EMAILS" in self.args.tests:
+            self.email_scraper.print_result()
 
-        # Parse unique directories, add media to it & run directory listing test
-        self.http_client._stored_urls.update(open(load_wordlist_file("directories.txt", args_wordlist=self.args.wordlist)).readlines())
-        self.http_client._stored_urls.update(media_urls)
+        if "MEDIA" in self.args.tests:
+            media_urls: list = self.source_discover.print_media(self.user_discover.get_user_list()) # Scrape all uploaded public media
 
-        _directories = self.http_client._extract_unique_directories(target_domain=urllib.parse.urlparse(self.BASE_URL).netloc)
-        self.source_discover.wordlist_discovery(list(set(_directories)), title="directory listing", search_in_response="index of", method="get")
+            # Parse unique directories, add media to it & run directory listing test
+            self.http_client._stored_urls.update(open(load_wordlist_file("directories.txt", args_wordlist=self.args.wordlist)).readlines())
+            self.http_client._stored_urls.update(media_urls)
 
-        if self.args.save_media:
-            MediaDownloader(args=self.args).save_media(media_urls)
+            if self.args.save_media:
+                MediaDownloader(args=self.args).save_media(media_urls)
+
+        if "DIRLIST" in self.args.tests:
+            _directories = self.http_client._extract_unique_directories(target_domain=urllib.parse.urlparse(self.BASE_URL).netloc)
+            self.source_discover.wordlist_discovery(list(set(_directories)), title="directory listing", search_in_response="index of", method="get")
+
 
         self.ptjsonlib.set_status("finished")
         ptprinthelper.ptprint(self.ptjsonlib.get_result_json(), "", self.args.json)
+
+
+def get_tests(for_help=False):
+    """
+    Returns tests either as:
+    - for_help=False: list of test names
+    - for_help=True: list of lists for help: ["", "", "  TEST", "Description"]
+    """
+    test_data = [
+        ("TECH", "Response headers, interesting headers, case sensitivity, meta tags"),
+        ("INFO", "Site information"),
+        ("ICONS", "Favicons discovery"),
+        ("GOOGLE", "Google-related identifiers"),
+        ("COMMENTS", "HTML comments discovery"),
+        ("VERSION", "WordPress version and supported versions"),
+        ("ROBOTS", "Robots.txt analysis"),
+        ("SITEMAP", "Sitemap discovery"),
+        ("DANGEROUS", "Testing for xmlrpc.php and dangerous scripts access"),
+        ("ADMIN", "Admin pages discovery"),
+        ("CONFIG", "Config files discovery"),
+        ("SETTINGS", "Settings files discovery"),
+        ("FPD", "Full path disclosure vulnerability discovery"),
+        ("LOGS", "Log files discovery"),
+        ("MNGMNT", "Management interface discovery"),
+        ("INFPG", "Information pages discovery"),
+        ("STATS", "Statistics discovery"),
+        ("BACKUP", "Backup files or directories discovery"),
+        ("REPO", "Repositories discovery"),
+        ("DIRLIST", "Test directory listing"),
+        ("README", "Readme files in root directory discovery"),
+        ("PLUGINS", "Plugin discovery and plugin readmes"),
+        ("WPS", "WPScan usage"),
+        ("API", "Namespaces provided by addons"),
+        ("UESRRSS", "User enumeration via RSS feed"),
+        ("USERDICT", "User enumeration via dictionary"),
+        ("USERPARAM", "User enumeration via author parameter"),
+        ("USERAPIU", "User enumeration via API users"),
+        ("USERAPIP", "User enumeration via API posts"),
+        ("YOAST", "Yoast plugin information"),
+        ("EMAILS", "Discovered email addresses from posts"),
+        ("MEDIA", "Discovered media details (title, author, uploaded, modified, URL)")
+    ]
+    return [["", "", f"  {k}", v] for k, v in test_data] if for_help else [k for k, _ in test_data]
+
 
 def get_help():
     return [
@@ -154,6 +248,9 @@ def get_help():
             ["-u",  "--url",                    "<url>",                "Connect to URL"],
             ["-rm",  "--readme",                "",                     "Enable readme dictionary attacks"],
             ["-pd",  "--plugins",               "",                     "Enable plugins dictionary attacks"],
+            ["-ts", "--tests", "<tests>", "Specify tests:"],
+            *get_tests(for_help=True),
+            ["","","","",""],
             ["-o",  "--output",                 "<file>",               "Save emails, users, logins and media urls to files"],
             ["-sm",  "--save-media",            "<folder>",             "Save media to folder"],
             ["-T",  "--timeout",                "<seconds>",            "Set Timeout"],
@@ -178,11 +275,13 @@ def get_help():
         }]
 
 def parse_args():
+    choices = get_tests()
     parser = argparse.ArgumentParser(add_help="False", description=f"{SCRIPTNAME} <options>", allow_abbrev=False)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("-u",     "--url", type=str, help="Provide a URL")
     group.add_argument("-dl",    "--download", nargs="?", const=True, help="Download mode")
     group.add_argument("-gp",    "--get-plugins", nargs="?", const=True, help="Get plugins mode")
+    parser.add_argument("-ts", "--tests",          type=lambda s: s.upper(), nargs="+", choices=choices, default=choices)
     parser.add_argument("-p",    "--proxy",           type=str)
     parser.add_argument("-sm",   "--save-media",      type=str)
     parser.add_argument("-w",    "--wordlist",        type=str)
