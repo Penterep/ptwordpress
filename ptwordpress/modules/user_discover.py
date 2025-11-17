@@ -1,24 +1,26 @@
-import hashlib
 import re
 import os
-import http.client
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import json
+import urllib
+
 from queue import Queue
+from threading import Lock
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
 import requests
 import ptlibs.tldparser as tldparser
 import defusedxml.ElementTree as ET
+
 from ptlibs import ptprinthelper
-from threading import Lock
-import json
-
-from modules.file_writer import write_to_file
-
-from modules.plugins.yoast import YoastScraper
-from modules.plugins.emails import Emails, get_emails_instance
-
 from ptlibs.http.http_client import HttpClient
 
+from modules.file_writer import write_to_file
+from modules.plugins.yoast import YoastScraper
+from modules.plugins.emails import Emails, get_emails_instance
 from modules.helpers import print_api_is_not_available, load_wordlist_file
+
+
 
 class UserDiscover:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed):
@@ -27,33 +29,30 @@ class UserDiscover:
         self.head_method_allowed = head_method_allowed
         self.BASE_URL = base_url
         self.REST_URL = base_url + "/wp-json"
-        self.FOUND_AUTHOR_IDS = set()
-        self.ENUMERATED_USERS = []
-        self.RESULT_QUERY = Queue()
-        self.path_to_user_wordlist = load_wordlist_file("usernames.txt", args_wordlist=self.args.wordlist)
-        self.vulnerable_endpoints: set = set()
+        self.USERS_TABLE = EnumeratedUserTable()
         self.thread_lock = Lock()
+        self.vulnerable_endpoints: set = set()
+
+        self.all_posts = []
         self.yoast_scraper = YoastScraper(args=self.args)
         self.email_scraper = get_emails_instance(args=self.args)
-        self.http_client = HttpClient()
+        self.http_client = HttpClient(self.args, self.ptjsonlib)
 
     def run(self):
-        # Mapping tests to their methods
-        test_to_method = {
+        test_to_method: dict = {
             "UESRRSS": self._enumerate_users_by_rss_feed,
-            "USERDICT": self._enumerate_users_by_author_name,
-            "USERPARAM": self._enumerate_users_by_author_id,
-            "USERAPIU": self.enumerate_by_users,
+            "USERDICT": self._enumerate_users_by_author_name,     # /author/<username>
+            "USERPARAM": self._enumerate_users_by_author_id,      # /?author=<id>
+            "USERAPIU": self.enumerate_by_users_endpoint,
             "USERAPIP": self.scrape_users_by_posts,
             "YOAST": self.yoast_scraper.print_result,
         }
 
-        selected_tests = set(self.args.tests)
         user_tests_ran = False  # track if any user-related test ran
 
         # Run methods for selected tests
         for test_name, func in test_to_method.items():
-            if test_name in selected_tests:
+            if test_name in set(self.args.tests): # Check if test specified
                 try:
                     func()
                     user_tests_ran = True
@@ -69,7 +68,7 @@ class UserDiscover:
                     continue
 
     def print_unique_logins(self):
-        users = list(self.RESULT_QUERY.queue)
+        users = self.USERS_TABLE.get_users()
         ptprinthelper.ptprint("Discovered logins", "TITLE", condition=not self.args.json, flush=True, indent=0, clear_to_eol=True, colortext="TITLE", newline_above=True)
         unique_slugs = sorted(set(user["slug"] for user in users if user["slug"]))
         if not unique_slugs:
@@ -85,8 +84,7 @@ class UserDiscover:
 
     def print_enumerated_users_table(self):
         ptprinthelper.ptprint(f"Discovered users", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-        users = list(self.RESULT_QUERY.queue)
-        users = self.filter_duplicate_users(users)
+        users = self.USERS_TABLE.get_users()
         users.sort(key=lambda x: int(x["id"]) if isinstance(x["id"], str) and x["id"].isdigit() else float('inf'))
 
         if not users:
@@ -112,57 +110,65 @@ class UserDiscover:
             filename = self.args.output + "-users.txt"
             write_to_file(filename, '\n'.join(user_lines))
 
-    def filter_duplicate_users(self, users):
-        unique_users = {}
-
-        for user in users:
-            name = user['name']
-            if name not in unique_users or (unique_users[name]['id'] == '' and user['id'] != ''):
-                unique_users[name] = user
-
-        return list(unique_users.values())
-
-    def enumerate_by_users(self) -> list:
+    def enumerate_by_users_endpoint(self) -> list:
         """Enumerate users via /wp/v2/users/?per_page=100&page=<number> endpoint"""
         ptprinthelper.ptprint(f"User enumeration via API users ({self.BASE_URL}/wp-json/wp/v2/users)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-        is_vuln = False
         for i in range(1, 100):
             response = self.http_client.send_request(f"{self.REST_URL}/wp/v2/users/?per_page=100&page={i}", method="GET")
-            data = self.load_prepare_response_json(response)
+            response_data = self.load_prepare_response_json(response)
 
-            if response.status_code == 200:
-                try:
-                    if not data:
-                        break
-                except:
-                    break
+            if response.status_code != 200:
+                print_api_is_not_available(status_code=getattr(response, "status_code", None))
+                return
 
-                for user_object in data:
-                    result = {"id": str(user_object.get("id", "")), "slug": user_object.get("slug", ""), "name": user_object.get("name", "")}
-                    ptprinthelper.ptprint(f"{result['id']}{' '*(8-len(result['id']))}{result['slug']}{' '*(40-len(result['slug']))}{result['name']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+            for user_dict in response_data:
+                result = {"id": str(user_dict.get("id", "")), "slug": user_dict.get("slug", ""), "name": user_dict.get("name", "")}
+                ptprinthelper.ptprint(f"{result['id']}{' '*(8-len(result['id']))}{result['slug']}{' '*(40-len(result['slug']))}{result['name']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
 
-                    self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, result)
-                    author_id = user_object.get("id")
-                    if author_id:
-                        self.FOUND_AUTHOR_IDS.add(author_id)
-                        self.vulnerable_endpoints.add(f"{self.REST_URL}/wp/v2/users/")
-                    is_vuln = True
-            else:
-                break
-        if not is_vuln:
+                self.USERS_TABLE.update_queue(result)
+                if user_dict.get("id"):
+                    self.vulnerable_endpoints.add(f"{self.REST_URL}/wp/v2/users/")
+
+    def scrape_external_links(self, response):
+
+        text = str(self.load_prepare_response_json(response))
+
+        # find all HTTP/HTTPS URLs
+        urls = re.findall(r'https?://[^\s"\'<>]+', text)
+
+        # get the domain of the base URL
+        base_domain = urllib.parse.urlparse(self.BASE_URL).netloc
+
+        # filter out only external links
+        external_links = list(set([url for url in urls if urllib.parse.urlparse(url).netloc != base_domain]))
+
+        return external_links
+
+    def _scrape_posts(self) -> list:
+        """Scrapes and returns all site posts"""
+        posts: list = []
+
+        # Get first page of posts
+        response = self.http_client.send_request(url=f"{self.REST_URL}/wp/v2/posts/?per_page=100&page=1", method="GET")
+
+        # Check stability
+        if response.status_code != 200:
             print_api_is_not_available(status_code=getattr(response, "status_code", None))
+            return
 
-    def scrape_users_by_posts(self):
-        """Retrieve users via /wp-json/wp/v2/posts/?per_page=100&page=<number> endpoint"""
-        ptprinthelper.ptprint(f"User enumeration via API posts ({self.BASE_URL}/wp-json/wp/v2/posts)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-        enumerated_users = []
-        all_posts = []
-        seen_users = set()
+        # Scrape mails
+        self.email_scraper.parse_emails_from_response(response=response)
+
+        # scrape links
+        self.scrape_external_links(response=response)
+        # Add to posts
+        posts.extend(self.load_prepare_response_json(response))
 
         def fetch_page(page):
             url = f"{self.REST_URL}/wp/v2/posts/?per_page=100&page={page}"
             try:
                 response = self.http_client.send_request(url, method="GET")
+                ptprinthelper.ptprint(url, "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
                 with self.thread_lock:
                     self.email_scraper.parse_emails_from_response(response=response)
 
@@ -171,79 +177,159 @@ class UserDiscover:
             except Exception as e:
                 return []
 
-        # Request to first page
-        response = self.http_client.send_request(url=f"{self.REST_URL}/wp/v2/posts/?per_page=100&page=1", method="GET")
-        data = self.load_prepare_response_json(response)
-
-        if response.status_code != 200:
-            print_api_is_not_available(status_code=getattr(response, "status_code", None))
-            return
-        all_posts.extend(data)
-        # Scrape rest of pages
+        # Scrape rest of posts in paralell
         with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            for page in range(2, 999, 5):
-                pages = list(executor.map(fetch_page, range(page, page + 5)))
-                all_posts.extend([post for page in pages if page for post in page])
+            for start_page in range(2, 999, 5):
+                # Define the current batch of pages
+                batch_pages = range(start_page, start_page + 8)
 
-                if any(not posts for posts in pages):  # If any page of the batch returns empty list, stop sending more requests
+                # Fetch all pages in this batch in parallel
+                batch_results = list(executor.map(fetch_page, batch_pages))
+
+                # Flatten results and add to posts
+                for page_posts in batch_results:
+                    if page_posts:
+                        posts.extend(page_posts)
+
+                 # Stop if any page returned no posts
+                if any(len(page_posts) == 0 for page_posts in batch_results):
                     break
-            self.yoast_scraper.parse_posts(data=all_posts)
 
+        # Run Yoast Scanner againsts all posts.
+        if "YOAST" in self.args.tests:
+            self.yoast_scraper.parse_posts(data=posts)
+
+        return posts
+
+
+    def scrape_users_by_posts(self):
+        """Retrieve users via /wp-json/wp/v2/posts/?per_page=100&page=<number> endpoint"""
+        ptprinthelper.ptprint(f"User enumeration via API posts ({self.BASE_URL}/wp-json/wp/v2/posts)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+
+        all_posts = self._scrape_posts() if not self.all_posts else self.all_posts
+
+        # Collect all new user IDs
+        ids_to_enumerate = set()
         for post in all_posts:
-            user = {"id": str(post.get("author", "")), "slug": "", "name": ""}
-            if user["id"] in seen_users:
-                continue
-            seen_users.add(user["id"])
-            user = self.map_user_id_to_slug(user_id=user["id"])
+            user_id = str(post.get("author", ""))
+            self.USERS_TABLE.update_queue({"id": user_id, "slug": "", "name": ""})
+            #if self.USERS_TABLE.needs_enumeration(user_id):
+            ids_to_enumerate.add(user_id)
+
+        enumerated_users = []
+        space = max(1, len(str(max(ids_to_enumerate, default=1))))
+        for uid in ids_to_enumerate:
+            #user = self.enumerate_via_author_id_endpoint(uid, space=space)
+            user = self.check_author_id(uid)
+
+            if not user["slug"] and not user["name"]:
+                user = self.enumerate_via_users_id_endpoint(user_id=uid)
+
             if not user["slug"] and not user["name"]:
                 ptprinthelper.ptprint(f"ID: {user['id']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
-            else:
-                ptprinthelper.ptprint(f"{user['id']}{' '*(8-len(user['id']))}{user['slug']}{' '*(40-len(user['slug']))}{user['name']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+
             enumerated_users.append(user)
 
         if enumerated_users:
             for user in enumerated_users:
-                self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, user)
+                self.USERS_TABLE.update_queue(user)
+
         else:
             ptprinthelper.ptprint(f"No users discovered", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
 
+    def enumerate_via_users_id_endpoint(self, user_id, max_length):
+        """Retrieve user information by users/<id> endpoint"""
+        url = f"{self.REST_URL}/wp/v2/users/{user_id}"
+        response = self.http_client.send_request(url, method="GET", allow_redirects=True)
+
+        data = self.load_prepare_response_json(response)
+
+        if response.status_code == 200:
+            result = {"id": user_id, "slug": data.get("slug"), "name": data.get("name", "")}
+            if data.get("slug") or data.get("name"):
+                #ptprinthelper.ptprint(f"ID: {user_id}{' '*max_length}   → {' '*max_length} →   {data.get("slug")}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
+                ptprinthelper.ptprint(f"ID: {author_id}{' '*max_length}   → {url}{' '*max_length} →   {data.get('name', '')} {' '*nickname_max_length}{data.get('slug', '')}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
+            return result
+        else:
+            result = {"id": user_id, "slug": "", "name": ""}
+            return result
+
+    """
+    def enumerate_via_author_id_endpoint(self, author_id: int, space=1):
+        url = f"{self.BASE_URL}/?author={author_id}"
+        #ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
+        response = self.http_client.send_request(url, method="GET", allow_redirects=False)
+
+        username_from_response = self._find_author_username(response)
+        max_length = (space - len(str(author_id))) #len(str(self.args.author_range[-1])) - len(str(author_id))
+        user_id = response.url.split("=")[-1]
+
+        if response.status_code == 200:
+            name_from_title = self._extract_name_from_title(response) # Extracts name from title
+            if name_from_title:
+                ptprinthelper.ptprint(f"ID: {author_id}{' '*max_length}   → {url}{' '*max_length} →   {name_from_title} {username_from_response}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
+                return {"id": str(user_id) if user_id.isdigit() else "", "name": name_from_title, "slug": username_from_response}
+
+        elif response.is_redirect:
+            location = response.headers.get("Location")
+            location = (self.BASE_URL + location) if location and location.startswith("/") else location
+
+            # Extracts username from Location header if possible.
+            new_response = self.http_client.send_request(location, method="GET", allow_redirects=False) # For title extraction
+
+            name_from_title = self._extract_name_from_title(new_response)
+            if not name_from_title:
+                name_from_title = ""
+
+            re_pattern = r"/author/(.*)/$" # Check if author in redirect
+            match = re.search(re_pattern, response.headers.get("location", ""))
+            if match:
+                slug = match.group(1)
+                nickname_max_length =  (20 - len(str(name_from_title)))
+                ptprinthelper.ptprint(f"ID: {author_id}{' '*max_length}   → {response.url}{' '*max_length} →   {name_from_title} {' '*nickname_max_length}{slug}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
+                return {"id": str(user_id) if user_id.isdigit() else "", "name": name_from_title, "slug": slug}
+    """
+
+    def check_author_id(self, author_id: int):
+        url = f"{self.BASE_URL}/?author={author_id}"
+        ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
+        response = self.http_client.send_request(url, method="GET", allow_redirects=False)
+
+        username_from_response = self._find_author_username(response)
+        max_length = len(str(self.args.author_range[-1])) - len(str(author_id))
+        user_id = response.url.split("=")[-1]
+        if response.status_code == 200:
+            name_from_title = self._extract_name_from_title(response) # Extracts name from title
+            if name_from_title:
+                nickname_max_length =  (20 - len(str(name_from_title)))
+                ptprinthelper.ptprint(f"[{response.status_code}] {url}{' '*max_length} →   {name_from_title} {' '*nickname_max_length}{username_from_response}", "VULN", condition=not self.args.json, indent=4)
+                return {"id": str(user_id) if user_id.isdigit() else "", "name": name_from_title, "slug": username_from_response}
+
+        elif response.is_redirect:
+            location = response.headers.get("Location")
+            location = (self.BASE_URL + location) if location and location.startswith("/") else location
+
+            # Extracts username from Location header if possible.
+            new_response = self.http_client.send_request(location, method="GET", allow_redirects=False) # For title extraction
+
+            name_from_title = self._extract_name_from_title(new_response)
+            if not name_from_title:
+                name_from_title = ""
+
+            re_pattern = r"/author/(.*)/$" # Check if author in redirect
+            match = re.search(re_pattern, response.headers.get("location", ""))
+            if match:
+                slug = match.group(1)
+                nickname_max_length =  (20 - len(str(name_from_title)))
+                ptprinthelper.ptprint(f"[{response.status_code}] {response.url}{' '*max_length} →   {name_from_title} {' '*nickname_max_length}{slug}", "VULN", condition=not self.args.json, indent=4)
+                return {"id": str(user_id) if user_id.isdigit() else "", "name": name_from_title, "slug": slug}
+
     def _enumerate_users_by_author_id(self) -> list:
         """Enumerate users via /?author=<id> query."""
-        def check_author_id(author_id: int):
-            url = f"{self.BASE_URL}/?author={author_id}"
-            ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
-            response = self.http_client.send_request(url, method="GET", allow_redirects=False)
-            max_length = len(str(self.args.author_range[-1])) - len(str(author_id))
-            user_id = response.url.split("=")[-1]
-            if response.status_code == 200:
-                name_from_title = self._extract_name_from_title(response) # Extracts name from title
-                if name_from_title:
-                    ptprinthelper.ptprint(f"[{response.status_code}] {url}{' '*max_length} →   {name_from_title}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
-                    return {"id": str(user_id) if user_id.isdigit() else "", "name": name_from_title, "slug": ""}
-
-            elif response.is_redirect:
-                location = response.headers.get("Location")
-                location = (self.BASE_URL + location) if location and location.startswith("/") else location
-
-                # Extracts username from Location header if possible.
-                new_response = self.http_client.send_request(location, method="GET", allow_redirects=False) # For title extraction
-
-                name_from_title = self._extract_name_from_title(new_response)
-                if not name_from_title:
-                    name_from_title = ""
-                re_pattern = r"/author/(.*)/$" # Check if author in redirect
-                match = re.search(re_pattern, response.headers.get("location", ""))
-                if match:
-                    slug = match.group(1)
-                    nickname_max_length =  (20 - len(str(name_from_title)))
-                    ptprinthelper.ptprint(f"[{response.status_code}] {response.url}{' '*max_length} →   {name_from_title} {' '*nickname_max_length}{slug}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
-                    return {"id": str(user_id) if user_id.isdigit() else "", "name": name_from_title, "slug": slug}
-
-        futures: list = []
         results: list = []
         ptprinthelper.ptprint(f"User enumeration via author parameter ({self.BASE_URL}/?author=<{self.args.author_range[0]}-{self.args.author_range[1]}>)", "TITLE", condition=not self.args.json, colortext=True, newline_above=False)
         with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            futures = [executor.submit(check_author_id, i) for i in range(self.args.author_range[0], self.args.author_range[1])]
+            futures = [executor.submit(self.check_author_id, i) for i in range(self.args.author_range[0], self.args.author_range[1])]
             for future in as_completed(futures):
                 result = future.result()
                 if result is not None:
@@ -252,40 +338,65 @@ class UserDiscover:
             if results:
                 self.vulnerable_endpoints.add(f"{self.BASE_URL}/?author=<id>")
                 for result in results:
-                    self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, result)
-
-                    unique_id = result.get("id")
-                    self.FOUND_AUTHOR_IDS.add(result.get("id"))
+                    self.USERS_TABLE.update_queue(result)
             else:
                 ptprinthelper.ptprint(f"No users discovered", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
 
+    def _find_author_username(self, response) -> str:
+        """Find author in response.text"""
+        text = response.text
+        # 1) author/<name>/feed/
+        m = re.search(r"author/([^/]+)/feed/", text, re.IGNORECASE)
+        if m:
+            return m.group(1)
+
+        # 2) author-<username>  (alphanumeric + _ + -)
+        matches = re.findall(r"author-([a-zA-Z_-]+)", text, re.IGNORECASE)
+        if matches:
+            return matches[0]
+
+        return ""
+
+    def _find_author_id(self, response) -> str:
+        """Find author id in response"""
+        #m = re.search(r"author-(\d+)", response.text)
+        m = list(re.finditer(r"author-(\d+)", response.text))
+        if m:
+            return m[-1].group(1)
+        return ""
+
     def _enumerate_users_by_author_name(self) -> list:
         """Dictionary attack via /author/name endpoint"""
+
         def check_author_name(author_name: str):
-            """Thread function"""
             url = f"{self.BASE_URL}/author/{author_name}/"
             ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
             response = self.http_client.send_request(url, method="GET", allow_redirects=False)
 
             if response.status_code == 200:
                 title = self._extract_name_from_title(response)
-                ptprinthelper.ptprint(f"[{response.status_code}] {url}    {title}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
-                return {"id": "", "name": title, "slug": author_name}
+                user_id = self._find_author_id(response)
+                spaces = max(1, formatting_length - len(author_name))
+                ptprinthelper.ptprint(f"[{response.status_code}] {url}{' ' * spaces}{title}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
+                return {"id": user_id, "name": title, "slug": author_name}
 
         results = []
         ptprinthelper.ptprint(f"User enumeration via dictionary ({self.BASE_URL}/author/<name>/)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            futures = [executor.submit(check_author_name, author_name) for author_name in self.wordlist_generator(wordlist_path=self.path_to_user_wordlist)]
+            usernames_wordlist_path: str = load_wordlist_file("usernames.txt", args_wordlist=self.args.wordlist)
+            formatting_length = max((len(word.strip()) for word in open(usernames_wordlist_path)), default=1)
+            futures = [executor.submit(check_author_name, author_name) for author_name in self.wordlist_generator(wordlist_path=usernames_wordlist_path)]
             for future in as_completed(futures):
                 result = future.result()
                 if result is not None:
-                    self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, result)
+                    self.USERS_TABLE.update_queue(result)
                     results.append(result)
-            if results:
-                self.vulnerable_endpoints.add(f"{self.BASE_URL}/author/<author>/")
-            else:
-                ptprinthelper.ptprint(f"No users discovered", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
-            ptprinthelper.ptprint(" ", "TEXT", condition=not self.args.json, clear_to_eol=True)
+
+        if results:
+            self.vulnerable_endpoints.add(f"{self.BASE_URL}/author/<author>/")
+            ptprinthelper.ptprint(" ", "TEXT", condition=not self.args.json, clear_to_eol=True, end="")
+        else:
+            ptprinthelper.ptprint(f"No users discovered", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
 
     def _enumerate_users_via_comments(self):
         for i in range(1, 100):
@@ -298,24 +409,9 @@ class UserDiscover:
                 for comment in data:
                     author_id, author_name, author_slug = comment.get("author"), comment.get("author"), comment.get("author")
                     if author_id:
-                        self.FOUND_AUTHOR_IDS.add(author_id)
                         self.vulnerable_endpoints.add(response.url)
             if response.status_code != 200:
                 break
-
-    def map_user_id_to_slug(self, user_id):
-        """Retrieve user information by user_id"""
-        url = f"{self.REST_URL}/wp/v2/users/{user_id}"
-        response = self.http_client.send_request(url, method="GET", allow_redirects=True)
-        data = self.load_prepare_response_json(response)
-
-        if response.status_code == 200:
-            result = {"id": user_id, "slug": data.get("slug"), "name": data.get("name", "")}
-            return result
-        else:
-            result = {"id": user_id, "slug": "", "name": ""}
-            return result
-
 
     def _enumerate_users_by_rss_feed(self):
         """User enumeration via RSS feed"""
@@ -339,7 +435,7 @@ class UserDiscover:
                     rss_authors.add(creator)
                     ptprinthelper.ptprint(f"{creator}", "VULN", condition=not self.args.json, colortext=False, indent=4)
                     result =  {"id": "", "name": creator, "slug": ""}
-                    self.RESULT_QUERY = self.update_queue(self.RESULT_QUERY, result)
+                    self.USERS_TABLE.update_queue(result)
             if not creators:
                 ptprinthelper.ptprint(f"No authors discovered via RSS feed", "OK", condition=not self.args.json, indent=4)
         else:
@@ -436,30 +532,76 @@ class UserDiscover:
         except Exception as e:
             pass
 
-    def update_queue(self, queue, user_data):
-        temp_queue = Queue()
 
+class EnumeratedUserTable:
+    def __init__(self):
+        self.RESULT_QUERY = Queue()
+
+    def get_users(self):
+        """
+        Returns the current contents of the internal queue as a list.
+
+        Returns:
+            List of user data dictionaries currently stored in the queue.
+        """
+        return list(self.RESULT_QUERY.queue)
+
+    def update_queue(self, user_data: dict) -> None:
+        """
+        Updates the internal queue with a new or existing user entry.
+
+        - If the user_data has no 'id', it is added to the front of the queue.
+        - If the 'id' exists in the queue:
+            - Missing 'slug' or 'name' fields are updated from user_data.
+        - If the 'id' does not exist, the user_data is added to the end of the queue.
+
+        Args:
+            user_data (dict): A dictionary containing user information. Expected keys are:
+                - 'id' (optional)
+                - 'slug' (optional)
+                - 'name' (optional)
+        """
+        temp_queue = Queue()  # Temporary queue to store the updated queue contents
+
+        # Case: user_data has no ID
+        # Add user_data first, then append all existing entries after it
         if not user_data.get("id"):
             temp_queue.put(user_data)
-            while not queue.empty():
-                temp_queue.put(queue.get())
-            return temp_queue
+            while not self.RESULT_QUERY.empty():
+                temp_queue.put(self.RESULT_QUERY.get())
+            self.RESULT_QUERY = temp_queue
+            return
 
-        found = False
-        while not queue.empty():
-            item = queue.get()
+        found = False  # Flag to track if a matching ID exists
+
+        # Process existing queue items
+        while not self.RESULT_QUERY.empty():
+            item = self.RESULT_QUERY.get()
             if item.get("id") == user_data.get("id"):
                 found = True
+                # Fill in missing fields if available in the new user_data
                 if not item.get("slug") and user_data.get("slug"):
                     item["slug"] = user_data["slug"]
                 if not item.get("name") and user_data.get("name"):
                     item["name"] = user_data["name"]
-            temp_queue.put(item)
+            temp_queue.put(item)  # Keep the item in the queue (updated or unchanged)
 
+        # If no matching ID was found, add user_data to the end of the queue
         if not found:
             temp_queue.put(user_data)
 
-        return temp_queue
+        # Replace the old queue with the updated queue
+        self.RESULT_QUERY = temp_queue
 
-    def get_user_list(self):
-        return list(self.RESULT_QUERY.queue)
+    def needs_enumeration(self, user_id: str) -> bool:
+        """
+        Returns True if the queue contains an entry with the given user_id
+        but is missing 'slug' or 'name'.
+        """
+        for item in self.RESULT_QUERY.queue:
+            if item.get("id") == user_id:
+                if not item.get("slug") or not item.get("name"):
+                    return True
+                else:
+                    return False
+        return False

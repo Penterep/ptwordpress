@@ -19,6 +19,7 @@ class Emails:
 
     def parse_emails_from_response(self, response):
         """Retrieve emails from response"""
+        #print(response.json)
         response_text = response.text.replace(r"\r\n", " ").replace(r"\n", " ")
 
         email_regex = r"[\w\.-]+@[\w\.-]+\.[a-zA-Z]{2,3}"

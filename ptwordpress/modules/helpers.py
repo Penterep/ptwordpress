@@ -39,7 +39,6 @@ class Helpers:
 
             self.args = args
             self.ptjsonlib = ptjsonlib
-            self.BASE_URL, self.REST_URL = self.construct_wp_api_url(args.url)
             self.http_client = HttpClient(args=self.args, ptjsonlib=self.ptjsonlib)
             self._block_wait = self.args.block_wait
             self._initialized = True  # Flag to indicate that initialization is complete
@@ -47,7 +46,7 @@ class Helpers:
     def print_response_headers(self, response):
         """Print all response headers"""
         ptprint(f"Response headers:", "INFO", not self.args.json, colortext=True)
-        for header_name, header_value in response.raw.headers.items():
+        for header_name, header_value in response.headers.items():
             ptprint(f"{header_name}: {header_value}", "ADDITIONS", not self.args.json, colortext=True, indent=4)
 
         interesting_headers = ["Server", "X-Powered-By"]
@@ -58,7 +57,6 @@ class Helpers:
             # Returns True if atleast one character in value is number
             return any(char.isdigit() for char in value)
 
-
         if filtered_headers:
             ptprint("Interesting headers", "INFO", not self.args.json, colortext=True, newline_above=True)
             for header, value in filtered_headers.items():
@@ -66,8 +64,6 @@ class Helpers:
                 ptprint(f"{header}: {value}", tag, not self.args.json, indent=4)
         else:
             ptprint("No interesting headers found.", "TEXT", not self.args.json, indent=4)
-
-
 
     def check_if_target_is_wordpress(self, base_response: object, wp_json_response: object) -> bool:
         """Checks if target runs wordpress, if not script will be terminated."""
@@ -306,7 +302,7 @@ class Helpers:
             ptprint(f"Error retrieving sitemap from {self.BASE_URL + '/sitemap.xml'}", "WARNING", condition=not self.args.json, indent=4)
 
         # Process robots.txt sitemaps
-        if robots_txt_response.status_code == 200:
+        if robots_txt_response and robots_txt_response.status_code == 200:
             _sitemap_url: list = re.findall(r"Sitemap:(.*)\b", robots_txt_response.text, re.IGNORECASE)
             if _sitemap_url:
                 ptprint(f"Sitemap{'s' if len(_sitemap_url) > 1 else ''} in robots.txt:", "OK", condition=not self.args.json, indent=4)
@@ -315,28 +311,28 @@ class Helpers:
 
     def get_wordpress_version(self, base_response, rss_response, meta_tags, head_method_allowed):
         """Retrieve wordpress version from metatags, rss feed, API, ... """
-        ptprint(f"Wordpress version", "TITLE", condition=not self.args.json, newline_above=True, indent=0, colortext=True)
+        ptprint(f"Wordpress version", "TITLE", condition=(not self.args.json and 'VERSION' in self.args.tests), newline_above=True, indent=0, colortext=True)
         wp_version = None
         svg_badge_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-admin/images/about-release-badge.svg", method="GET", allow_redirects=False)
         if svg_badge_response.status_code == 200:
-            ptprinthelper.ptprint(f"{svg_badge_response.url}", "VULN", condition=not self.args.json, indent=4, end="")
+            ptprinthelper.ptprint(f"{svg_badge_response.url}", "VULN", condition=(not self.args.json and 'VERSION' in self.args.tests), indent=4, end="")
             _found = False
             # Get sha 256 hash from response and compare with local db
             response_hash = Hashes(self.args).calculate_hashes(svg_badge_response.content)["SHA256"]
             for key, value in known_svg_badge_hashes.items():
                 if value == response_hash:
-                    ptprinthelper.ptprint(f": {key}", "TEXT", condition=not self.args.json)
+                    ptprinthelper.ptprint(f": {key}", "TEXT", condition=(not self.args.json and 'VERSION' in self.args.tests))
                     _found = True
                     break
             if not _found:
-                ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json)
+                ptprinthelper.ptprint(f" ", "TEXT", condition=(not self.args.json and 'VERSION' in self.args.tests))
 
         opml_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-links-opml.php", method="GET", allow_redirects=False)
         if opml_response.status_code == 200:
             wp_version = re.findall(r"WordPress.*(\d\.\d\.[\d.]+)", opml_response.text)
             if wp_version:
                 wp_version = wp_version[0]
-                ptprinthelper.ptprint(f"File wp-links-opml.php provides version of Wordpress: {wp_version}", "VULN", condition=not self.args.json, indent=4)
+                ptprinthelper.ptprint(f"File wp-links-opml.php provides version of Wordpress: {wp_version}", "VULN", condition=(not self.args.json and 'VERSION' in self.args.tests), indent=4)
                 wp_version = wp_version
 
         # Print meta tags
@@ -351,9 +347,9 @@ class Helpers:
                     wp_version = match.group(1)
 
             if meta_tag_result:
-                ptprint(f"The metatag 'generator' provides information about WordPress version: {', '.join(meta_tag_result)}", "VULN", condition=not self.args.json, indent=4)
+                ptprint(f"The metatag 'generator' provides information about WordPress version: {', '.join(meta_tag_result)}", "VULN", condition=(not self.args.json and 'VERSION' in self.args.tests), indent=4)
             else:
-                ptprint(f"The metatag 'generator' does not provide version of WordPress", "OK", condition=not self.args.json, indent=4)
+                ptprint(f"The metatag 'generator' does not provide version of WordPress", "OK", condition=(not self.args.json and 'VERSION' in self.args.tests), indent=4)
 
         if base_response:
             # TODO: Check WP version from source code. Sometimes, plugin version instead of wordpress version can be detected.
@@ -373,7 +369,7 @@ class Helpers:
         try:
             root = ET.fromstring(response.text.strip())
         except:
-            ptprinthelper.ptprint(f"Error decoding XML feed", "ERROR", condition=not self.args.json, indent=4)
+            ptprinthelper.ptprint(f"Error decoding XML feed", "ERROR", condition=(not self.args.json and 'VERSION' in self.args.tests), indent=4)
             return
         generators: list = root.findall(".//generator")
         _wp_version = None
@@ -384,9 +380,9 @@ class Helpers:
                 break
 
         if _wp_version:
-            ptprinthelper.ptprint(f"RSS feed provides version of Wordpress: {_wp_version}", "VULN", condition=not self.args.json, indent=4)
+            ptprinthelper.ptprint(f"RSS feed provides version of Wordpress: {_wp_version}", "VULN", condition=(not self.args.json and 'VERSION' in self.args.tests), indent=4)
         else:
-            ptprinthelper.ptprint(f"RSS feed does not provide version of Wordpress", "OK", condition=not self.args.json, indent=4)
+            ptprinthelper.ptprint(f"RSS feed does not provide version of Wordpress", "OK", condition=(not self.args.json and 'VERSION' in self.args.tests), indent=4)
 
         return _wp_version
 
@@ -410,38 +406,44 @@ class Helpers:
             return responses["rest"], responses["rss"], responses["robots"]
         return rest_response, rss_response, robots_txt_response
 
-    def _get_base_response(self, url, instance_to_run):
+    def _get_base_response(self, url):
         """Retrieve base response and handle initial redirects"""
-        base_response = self._load_url(url=self.BASE_URL, args=self.args, message="Connecting to URL") # example.com/
-        if "TECH" in self.args.tests:
-            self.print_response_headers(response=base_response)
-        if base_response.is_redirect:
-            self._handle_redirect(base_response, self.args, instance_to_run=instance_to_run)
+        base_response = self._load_url(url=url, args=self.args, message="Connecting to URL") # example.com/
+        self.BASE_URL, self.REST_URL = self.construct_wp_api_url(base_response.url)
+        #return self.BASE_URL, self.REST_URL
         return base_response
 
-    def _handle_redirect(self, response, args, instance_to_run):
-        if not self.args.json:
-            ptprint(f"[{response.status_code}] Returned response redirects to {response.headers.get('location', '?')}, following...", "INFO", not self.args.json, end="", flush=True, newline_above=True)
-            ptprint("\n", condition=not self.args.json, end="\n")
-            args.redirects = True
-            instance_to_run.BASE_URL = response.headers.get("location")[:-1] if response.headers.get("location").endswith("/") else response.headers.get("location")
-            instance_to_run.BASE_URL = urllib.parse.urlparse(instance_to_run.BASE_URL)._replace(path='', query='', fragment='').geturl() # Strip path
-            instance_to_run.REST_URL = self.BASE_URL + "/wp-json"
-
-            self.BASE_URL = instance_to_run.BASE_URL
-            self.REST_URL = instance_to_run.REST_URL
-            instance_to_run.args = args
-            self.args = args
-            instance_to_run.run(args=self.args)
-            sys.exit(0) # Recurse exit.
-
-    def _load_url(self, url, args = None, message: str = None):
+    def _load_url(self, url, args = None, message: str = None, redirects=False):
         try:
-            response, dump = ptmisclib.load_url(url, "GET", headers=self.args.headers, cache=self.args.cache, redirects=self.args.redirects, proxies=self.args.proxy, timeout=self.args.timeout, dump_response=True)
+            response, dump = ptmisclib.load_url(url, "GET", headers=self.args.headers, cache=self.args.cache, redirects=True, proxies=self.args.proxy, timeout=self.args.timeout, dump_response=True)
+
+            history = response.history + [response]
+
+            if response.history:
+                #final_url = og_response.history[-1].url
+                response = response.history[0]
+
             if message:
                 ptprint(f"{message}: {response.url}", "TITLE", not self.args.json, colortext=True, end=" ")
                 ptprint(f"[{response.status_code}]", "TEXT", not self.args.json, end="\n")
+
+            if "TECH" in self.args.tests:
+                self.print_response_headers(response=response)
+
+            if response.is_redirect:
+                if (self.args.json and not self.args.redirects):
+                    self.ptjsonlib.end_error(f"Redirect to {history[-1].url}, and --redirects are not set. Run test again.")
+
+                else: # follow redirect:
+                    response = history[-1]
+                    ptprint(f"[{response.status_code}] Returned response redirects to {response.url}, following...", "INFO", not self.args.json, end="\n", flush=True, newline_above=True if "TECH" in self.args.tests else False)
+
+                    if message:
+                        ptprint(f"{message}: {response.url}", "TITLE", not self.args.json, colortext=True, end=" ", newline_above=True)
+                        ptprint(f"[{response.status_code}]", "TEXT", not self.args.json, end="\n")
+                    return response
             return response
+
         except Exception as e:
             if message:
                 ptprint(f"{message}: {args.url}", "TITLE", not self.args.json, colortext=True, end=" ")
@@ -449,7 +451,7 @@ class Helpers:
             self.ptjsonlib.end_error(f"Error retrieving response from server.", self.args.json)
 
     def _check_if_blocked_by_server(self, url):
-
+        return
         # Check if the server is available
         def check_server_availability():
             try:
@@ -554,6 +556,7 @@ class Helpers:
             except Exception as e:
                 ptprinthelper.ptprint(f"Error downloading favicon: {e}", "WARNING", condition=not self.args.json, flush=True, clear_to_eol=True, indent=4)
 
+
 def print_api_is_not_available(status_code):
     ptprinthelper.ptprint(f"API is not available" + (f" [{str(status_code)}]" if status_code else ""), "WARNING", condition=True, indent=4)
 
@@ -571,7 +574,7 @@ def _yes_no_prompt(message) -> bool:
         else:
             return True
 
-def load_wordlist_file(wordlist_file: str, args_wordlist):
+def load_wordlist_file(wordlist_file: str, args_wordlist) -> str:
     if args_wordlist:
         path = os.path.join(args_wordlist, wordlist_file)
         if not os.path.exists(wordlist_file):

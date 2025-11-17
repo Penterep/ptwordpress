@@ -1,21 +1,21 @@
 #!/usr/bin/python3
 """
-    Copyright (c) 2025 Penterep Security s.r.o.
+Copyright (c) 2025 Penterep Security s.r.o.
 
-    ptwordpress - Wordpress Security Testing Tool
+ptwordpress - Wordpress Security Testing Tool
 
-    ptwordpress is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+ptwordpress is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-    ptwordpress is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+ptwordpress is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-    You should have received a copy of the GNU General Public License
-    along with ptwordpress.  If not, see <https://www.gnu.org/licenses/>.
+You should have received a copy of the GNU General Public License
+along with ptwordpress.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import argparse
@@ -53,13 +53,14 @@ class PtWordpress:
         self.http_client                 = HttpClient(args=self.args, ptjsonlib=self.ptjsonlib)
         self.http_client._store_urls     = True
         self.http_client.test_fpd        = True
-        self.http_client._base_headers   = self.args.headers
+        #self.http_client._base_headers   = self.args.headers
         self.helpers                     = Helpers(args=self.args, ptjsonlib=self.ptjsonlib)
-        self.BASE_URL, self.REST_URL     = self.helpers.construct_wp_api_url(args.url)
 
     def run(self, args) -> None:
         """Main method"""
-        self.base_response: object = self.helpers._get_base_response(url=self.BASE_URL, instance_to_run=self)
+        self.base_response: object  = self.helpers._get_base_response(url=args.url)
+        self.BASE_URL, self.REST_URL = self.helpers.construct_wp_api_url(self.base_response.url) # FINAL URLs.
+
         self.rest_response, self.rss_response, self.robots_txt_response = self.helpers.fetch_responses_in_parallel() # Parallel response retrieval
         self.helpers.check_if_target_is_wordpress(base_response=self.base_response, wp_json_response=None)
         self.helpers._extract_all_links_from_homepage(self.base_response)
@@ -72,16 +73,17 @@ class PtWordpress:
         else:
             self.target_is_case_sensitive = False
 
+        if "TECH" in self.args.tests:
+            meta_tags = self.helpers.extract_and_print_meta_tags(response=self.base_response)
+        else:
+            meta_tags = []
+
         self.helpers._check_if_blocked_by_server(self.base_response.url)
 
         self.source_discover: object     = SourceDiscover(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed, self.target_is_case_sensitive)
-
         self.user_discover: object       = UserDiscover(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
         self.wpscan_api: object          = WPScanAPI(args, self.ptjsonlib)
         self.email_scraper: object       = get_emails_instance(args=self.args)
-
-        if "TECH" in self.args.tests:
-            meta_tags = self.helpers.extract_and_print_meta_tags(response=self.base_response)
 
         self.helpers._check_if_blocked_by_server(self.base_response.url)
 
@@ -97,8 +99,9 @@ class PtWordpress:
         if "COMMENTS" in self.args.tests:
             self.helpers.extract_and_print_html_comments(response=self.base_response)
 
-        if "VERSION" in self.args.tests:
+        if "WPS" in self.args.tests or "VERSION" in self.args.tests:
             self.wp_version = self.helpers.get_wordpress_version(base_response=self.base_response, rss_response=self.rss_response, meta_tags=meta_tags, head_method_allowed=self.head_method_allowed)
+        if "VERSION" in self.args.tests:
             self.helpers.print_supported_wordpress_versions(wp_version=self.wp_version)
 
         if "ROBOTS" in self.args.tests:
@@ -115,6 +118,7 @@ class PtWordpress:
 
         if "SETTINGS" in self.args.tests:
             self.source_discover.wordlist_discovery("settings", title="settings files")
+
         if "FPD" in self.args.tests:
             self.source_discover.wordlist_discovery("fpd", title="Full Path Disclosure vulnerability", method="get")
 
@@ -171,19 +175,17 @@ class PtWordpress:
             self.email_scraper.print_result()
 
         if "MEDIA" in self.args.tests:
-            media_urls: list = self.source_discover.print_media(self.user_discover.get_user_list()) # Scrape all uploaded public media
-
+            media_urls: list = self.source_discover.print_media(self.user_discover.USERS_TABLE.get_users()) # Scrape all uploaded public media
             # Parse unique directories, add media to it & run directory listing test
             self.http_client._stored_urls.update(open(load_wordlist_file("directories.txt", args_wordlist=self.args.wordlist)).readlines())
             self.http_client._stored_urls.update(media_urls)
 
             if self.args.save_media:
-                MediaDownloader(args=self.args).save_media(media_urls)
+                MediaDownloader(args=self.args, ptjsonlib=self.ptjsonlib).save_media(media_urls)
 
         if "DIRLIST" in self.args.tests:
             _directories = self.http_client._extract_unique_directories(target_domain=urllib.parse.urlparse(self.BASE_URL).netloc)
             self.source_discover.wordlist_discovery(list(set(_directories)), title="directory listing", search_in_response="index of", method="get")
-
 
         self.ptjsonlib.set_status("finished")
         ptprinthelper.ptprint(self.ptjsonlib.get_result_json(), "", self.args.json)
@@ -259,7 +261,7 @@ def get_help():
             ["-c",  "--cookie",                 "<cookie>",             "Set Cookie"],
             ["-a", "--user-agent",              "<agent>",              "Set User-Agent"],
             ["-d", "--delay",                   "<miliseconds>",        "Set delay before each request"],
-            ["-ar", "--author-range",           "<author-range>",       "Set custom range for author enumeration (e.g. 1000-1300)"],
+            ["-ar", "--author-range",           "<author-range>",       "Set custom range for author enumeration (default 1-10)"],
             ["-w", "--wordlist",                "<directory>",          "Set custom wordlist directory"],
             ["-H",  "--headers",                "<header:value>",       "Set Header(s)"],
             ["-wpsk", "--wpscan-key",           "<api-key>",            "Set WPScan API key (https://wpscan.com)"],

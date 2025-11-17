@@ -3,3 +3,14 @@
 /wp-content/plugins/hello.php
 /wp-content/plugins/wordpress-seo/admin/admin-settings-changed-listener.php
 /wp-content/db.php
+/wp-includes/wp-diff.php
+/wp-includes/vars.php
+/wp-includes/template-loader.php
+/wp-includes/spl-autoload-compat.php
+/wp-includes/session.php
+/wp-includes/script-loader.php
+/wp-includes/rss.php
+/wp-includes/rss-functions.php
+/wp-includes/registration.php
+/wp-includes/registration-functions.php
+/wp-includes/update.php

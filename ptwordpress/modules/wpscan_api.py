@@ -12,7 +12,7 @@ class WPScanAPI:
         self.API_KEY = args.wpscan_key
         self.headers = {}
         self.headers.update({"Authorization": f"Token token={args.wpscan_key}"})
-        self.http_client = HttpClient()
+        self.http_client = HttpClient(self.args, self.ptjsonlib)
 
     def run(self, wp_version: str, plugins: list, themes: list):
         ptprint(f"WPScan", "INFO", not self.args.json, colortext=True, newline_above=True)
@@ -143,6 +143,8 @@ class WPScanAPI:
         reset_time = datetime.utcfromtimestamp(response.json().get('requests_reset')).strftime('%H:%M:%S')
         if reset_time != "00:00:00":
             ptprint(f"Requests reset: {reset_time}", "TEXT", condition=not self.args.json, indent=4)
+
+        ptprint(f" ", "TEXT", condition=not self.args.json, indent=4)
 
         return response.json()
 

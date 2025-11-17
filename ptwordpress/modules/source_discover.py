@@ -1,4 +1,4 @@
-
+import csv
 import sys
 import io
 import os
@@ -6,19 +6,18 @@ import re
 import requests
 import http.client
 import concurrent.futures
-from queue import Queue
-from itertools import chain
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from itertools import chain
+from queue import Queue
 
 import ptlibs.tldparser as tldparser
+
 from ptlibs.ptprinthelper import ptprint
 from ptlibs import ptprinthelper
-
 from ptlibs.http.http_client import HttpClient
+
 from modules.file_writer import write_to_file
-
 from modules.helpers import print_api_is_not_available, load_wordlist_file, Helpers
-
 
 class SourceDiscover:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed: bool, target_is_case_sensitive: bool):
@@ -35,7 +34,7 @@ class SourceDiscover:
         self.full_domain = f"{self.scheme}://{self.domain}"
         self.target_is_case_sensitive = target_is_case_sensitive
         self.helpers = Helpers(args=self.args, ptjsonlib=self.ptjsonlib)
-        self.http_client = HttpClient()
+        self.http_client = HttpClient(self.args, self.ptjsonlib)
 
     def discover_xml_rpc(self):
         """Discover XML-RPC API"""
@@ -135,6 +134,7 @@ class SourceDiscover:
         except requests.exceptions.RequestException as e:
             return
 
+
     def print_media(self, enumerated_users):
         """Print all media discovered via API"""
         def get_user_slug_or_name(user_id):
@@ -189,10 +189,9 @@ class SourceDiscover:
                     break
 
         source_urls = set()
-        for m in result:
-            source_urls.add(m.get("source_url"))
-
         for media in result:
+            source_urls.add(media.get("source_url"))
+
             ptprinthelper.ptprint(f'{media.get("title")}, {get_user_slug_or_name(media.get("author_id"))}, {media.get("uploaded")}, {media.get("modified")}', "ADDITIONS", colortext=False, condition=not self.args.json, indent=4, clear_to_eol=True)
             ptprinthelper.ptprint(media.get("source_url"), "ADDITIONS", colortext=True, condition=not self.args.json, indent=4, clear_to_eol=True)
 
@@ -200,8 +199,29 @@ class SourceDiscover:
             filename = self.args.output + "-media.txt"
             write_to_file(filename, '\n'.join(source_urls))
 
+            self.save_media_as_csv(result, enumerated_users)
+
         return source_urls
 
+    def save_media_as_csv(self, result: list, enumerated_users):
+        csv_filename = f"{self.args.output}-media.csv"
+        with open(csv_filename, "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["TITLE", "AUTHOR", "UPLOADED", "MODIFIED", "URL"])
+
+            for media in result:
+                # Extract fields
+                author = media.get("author_id")
+                for user in enumerated_users:
+                    if user["id"] == author:
+                        author = user.get("slug") or user.get("name") or author
+                title = media.get("title")
+                uploaded = media.get("uploaded")
+                modified = media.get("modified")
+                url = media.get("source_url")
+
+                # Write CSV row
+                writer.writerow([title, author, uploaded, modified, url])
 
     def plugin_themes_discovery(self, response, content_type) -> list:
         """General discovery for theme or plugin."""
