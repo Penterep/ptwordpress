@@ -1,3 +1,1 @@
-/wp-admin/
-/admin
 /wp-login.php

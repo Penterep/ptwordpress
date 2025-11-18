@@ -9,10 +9,13 @@ import concurrent.futures
 from http import HTTPStatus
 import itertools
 
+
 import requests
 
 from ptlibs.http.http_client import HttpClient
+from ptlibs import ptjsonlib
 
+from modules.version_by_sources import VersionBySourcesIdentifier
 from modules.release_badges import known_svg_badge_hashes
 from modules.plugins.hashes import Hashes
 
@@ -283,7 +286,7 @@ class Helpers:
         if wp_version is None or not wp_version:
             ptprint(f"Unknown wordpress version", "WARNING", not self.args.json, indent=4)
         elif wp_version not in supported_versions:
-            ptprint(f"Target uses unsupported version: {wp_version}.", "VULN", not self.args.json, indent=4)
+            ptprint(f"Target uses unsupported version: {wp_version}", "VULN", not self.args.json, indent=4)
         else:
             ptprint(f"{'Target uses latest version: ' if wp_version == latest_available_version else 'Target uses supported version: '}" + f"{wp_version}", "OK", not self.args.json, indent=4)
 
@@ -362,6 +365,11 @@ class Helpers:
 
         # TODO: If you know about more methods, add them ...
 
+        version_from_sources = VersionBySourcesIdentifier(self.args, self.ptjsonlib).identify_version_by_sources()
+        if len(version_from_sources)==1 and not wp_version: # only one version found from sources and no other version detected yet
+            wp_version = version_from_sources[0]
+        ptprint(f"Predicted version(s) by sources: {', '.join(version_from_sources)}", "OK" if not version_from_sources else "VULN", condition=(not self.args.json and 'VERSION' in self.args.tests), indent=4)
+
         return wp_version
 
     def _get_wp_version_from_rss_feed(self, response):
@@ -416,7 +424,6 @@ class Helpers:
     def _load_url(self, url, args = None, message: str = None, redirects=False):
         try:
             response, dump = ptmisclib.load_url(url, "GET", headers=self.args.headers, cache=self.args.cache, redirects=True, proxies=self.args.proxy, timeout=self.args.timeout, dump_response=True)
-
             history = response.history + [response]
 
             if response.history:
@@ -557,6 +564,78 @@ class Helpers:
                 ptprinthelper.ptprint(f"Error downloading favicon: {e}", "WARNING", condition=not self.args.json, flush=True, clear_to_eol=True, indent=4)
 
 
+    def print_posts_info(self, all_posts, enumerated_users):
+
+        ptprinthelper.ptprint(f"Discovered posts info", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        all_posts = self.user_discover._scrape_posts() if not self.user_discover.was_crawled_posts else self.user_discover.all_posts
+        extracted = []
+        ptprinthelper.ptprint(f"Discovered articles ({'links' if not self.args.verbose else 'id, author, date, title'})", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        for post in all_posts:
+            extracted.append({
+                "id": post["id"],
+                "date": post["date"],
+                "modified": post["modified"],
+                "slug": post["slug"],
+                "status": post["status"],
+                "type": post["type"],
+                "link": post["link"],
+                "title": post["title"]["rendered"],
+                "author": post["author"]
+            })
+
+            if self.args.verbose:
+                ptprinthelper.ptprint(f'{post["id"]}, {self.user_discover.get_user_slug_or_name(post["author"])}, {post["date"]}, {post["title"]["rendered"]}', "ADDITIONS", colortext=False, condition=not self.args.json, indent=4, clear_to_eol=True)
+            ptprinthelper.ptprint(post["link"], "ADDITIONS", colortext=True, condition=not self.args.json, indent=4, clear_to_eol=True)
+
+        if not all_posts:
+            ptprint(f"No posts discovered", "OK", condition=not self.args.json, indent=4)
+
+        if self.args.output:
+            self.helpers.save_posts_csv(all_posts, enumerated_users)
+
+
+    def save_posts_csv(self, posts: list, enumerated_users):
+        csv_filename = f"{self.args.output}-posts.csv"
+        with open(csv_filename, "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["ID", "DATE", "DATE_GMT", "GUID", "MODIFIED", "MODIFIED_GMT", "SLUG", "STATUS", "TYPE", "LINK", "TITLE", "AUTHOR"])
+
+            for post in posts:
+                # Extract fields
+                result =  {
+                    "id": post["id"],
+                    "date": post["date"],
+                    "modified": post["modified"],
+                    "slug": post["slug"],
+                    "status": post["status"],
+                    "type": post["type"],
+                    "link": post["link"],
+                    "title": post["title"]["rendered"],
+                    "author": str(post["author"])
+                }
+
+                for user in enumerated_users:
+                    if user["id"] == result["author"]:
+                        result["author"] = user.get("slug") or user.get("name") or result["author"]
+
+
+                # Write CSV row
+                writer.writerow([
+                    result.get("id"),
+                    result.get("date"),
+                    result.get("date_gmt"),
+                    result.get("guid"),
+                    result.get("modified"),
+                    result.get("modified_gmt"),
+                    result.get("slug"),
+                    result.get("status"),
+                    result.get("type"),
+                    result.get("link"),
+                    result.get("title"),
+                    result.get("author")
+                ])
+
+
 def print_api_is_not_available(status_code):
     ptprinthelper.ptprint(f"API is not available" + (f" [{str(status_code)}]" if status_code else ""), "WARNING", condition=True, indent=4)
 
@@ -584,4 +663,35 @@ def load_wordlist_file(wordlist_file: str, args_wordlist) -> str:
           # If no wordlist argument is provided, use the default path
             path = os.path.join(os.path.abspath(__file__.rsplit("/", 1)[0]), "wordlists", wordlist_file)
     return path
+
+
+def load_wordlist_file(wordlist_file: str, args_wordlist=None):
+    """
+    Returns the resolved absolute path to a valid wordlist.
+    If args_wordlist is provided, resolves inside that directory.
+    Otherwise uses the default internal wordlists directory.
+    Validates that the final file exists.
+    """
+
+    # Base directory of this script
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+
+    # 1) If user provided custom wordlist directory
+    if args_wordlist:
+        candidate = os.path.join(args_wordlist, wordlist_file)
+
+        # fallback to default only if custom path doesn't exist
+        if os.path.exists(candidate):
+            final_path = candidate
+        else:
+            final_path = os.path.join(base_dir, "wordlists", wordlist_file)
+
+    # 2) No custom directory → use default
+    else:
+        final_path = os.path.join(base_dir, "wordlists", wordlist_file)
+
+    # FINAL VALIDATION
+    if not os.path.isfile(final_path):
+        ptjsonlib.PtJsonLib().end_error(f"Wordlist file not found: {final_path}", True)
+    return final_path
 

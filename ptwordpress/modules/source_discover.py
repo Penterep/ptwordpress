@@ -44,10 +44,11 @@ class SourceDiscover:
             <methodName>system.listMethods</methodName>
             <params></params>
             </methodCall>'''
-            ptprinthelper.ptprint(f"Testing for xmlrpc.php availability", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
             response = self.http_client.send_request(f"{self.BASE_URL}/xmlrpc.php", method="POST", data=xml_data, allow_redirects=False)
-            ptprinthelper.ptprint(f"[{response.status_code}] {response.url}", "TEXT", condition=not self.args.json, indent=4)
-            ptprinthelper.ptprint(f"Script xmlrpc.php is {'available' if response.status_code == 200 else 'not available'}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
+            ptprinthelper.ptprint(f"[{response.status_code}] {response.url}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
+            if response.status_code == 200:
+                return response.url
+            #ptprinthelper.ptprint(f"Script xmlrpc.php is {'available' if response.status_code == 200 else 'not available'}", "VULN" if response.status_code == 200 else "OK", condition=not self.args.json, indent=4)
         except Exception as e:
             ptprinthelper.ptprint(e, "ERROR", condition=not self.args.json, indent=4)
             return
@@ -101,12 +102,18 @@ class SourceDiscover:
         with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
             result = list(executor.map(self.check_url, urls, [wordlist] * len(urls), [show_responses] * len(urls), [search_in_response] * len(urls), [method] * len(urls)))
 
+        if wordlist == "dangerous":
+            _res = self.discover_xml_rpc()
+            if _res:
+                result.append(_res)
+
         if all(not r for r in result):
             ptprinthelper.ptprint(f"No {title} discovered", "OK", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
         else:
             ptprinthelper.ptprint(f" ", "", condition=not self.args.json, end="", flush=True, indent=4, clear_to_eol=True)
 
         self.helpers._check_if_blocked_by_server(self.BASE_URL)
+        return [r for r in result if r]
 
     def check_url(self, url, wordlist=None, show_responses=False, search_in_response="", method=None):
         method = method or ("HEAD" if self.head_method_allowed else "GET")
@@ -160,7 +167,7 @@ class SourceDiscover:
         source_urls = set()
 
         # Try get & parse Page 1
-        ptprinthelper.ptprint(f"Discovered media (title, author, uploaded, modified, url)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        ptprinthelper.ptprint(f"Discovered media {'(link, title, author, uploaded, modified)' if self.args.verbose else ('links')}", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         try:
             response = self.http_client.send_request(f"{self.BASE_URL}/wp-json/wp/v2/media?page=1&per_page=100", method="GET", allow_redirects=False)
             for m in response.json():
@@ -192,8 +199,10 @@ class SourceDiscover:
         for media in result:
             source_urls.add(media.get("source_url"))
 
-            ptprinthelper.ptprint(f'{media.get("title")}, {get_user_slug_or_name(media.get("author_id"))}, {media.get("uploaded")}, {media.get("modified")}', "ADDITIONS", colortext=False, condition=not self.args.json, indent=4, clear_to_eol=True)
-            ptprinthelper.ptprint(media.get("source_url"), "ADDITIONS", colortext=True, condition=not self.args.json, indent=4, clear_to_eol=True)
+            ptprinthelper.ptprint(media.get("source_url"), "TEXT", colortext=False, condition=not self.args.json, indent=4, clear_to_eol=True)
+            if self.args.verbose:
+                ptprinthelper.ptprint(f'{media.get("title")}, {get_user_slug_or_name(media.get("author_id"))}, {media.get("uploaded")}, {media.get("modified")}', "ADDITIONS", colortext=True, condition=not self.args.json, indent=4, clear_to_eol=True)
+
 
         if self.args.output:
             filename = self.args.output + "-media.txt"
@@ -307,5 +316,6 @@ class SourceDiscover:
             for version_urls in versions.values():
                 all_urls.extend(version_urls)  # Collect all URLs from different versions
 
-            for url in sorted(set(all_urls)):  # Remove duplicates and sort URLs
-                ptprint(url, "ADDITIONS", condition=not self.args.json, indent=8, colortext=True)
+            if self.args.verbose:
+                for url in sorted(set(all_urls)):  # Remove duplicates and sort URLs
+                    ptprint(url, "ADDITIONS", condition=not self.args.json, indent=8, colortext=True)
