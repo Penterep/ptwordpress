@@ -240,8 +240,17 @@ class PtWordpress:
         if "MEDIA" in self.args.tests:
             media_urls: list = self.source_discover.print_media(self.user_discover.USERS_TABLE.get_users()) # Scrape all uploaded public media
             # Parse unique directories, add media to it & run directory listing test
-            self.http_client._stored_urls.update([line.strip() for line in open(load_wordlist_file("directories.txt", None)) if line.strip()])
             self.http_client._stored_urls.update(media_urls)
+            with open(load_wordlist_file("directories.txt", None)) as f:
+                entries = [line.strip() for line in f if line.strip()]
+
+            urls = []
+            for entry in entries:
+                if not entry.startswith("/"):
+                    entry = "/" + entry
+                urls.append(self.BASE_URL + entry)
+
+            self.http_client._stored_urls.update(urls)
 
             if self.args.save_media:
                 MediaDownloader(args=self.args, ptjsonlib=self.ptjsonlib).save_media(media_urls)

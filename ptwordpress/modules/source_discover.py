@@ -120,7 +120,7 @@ class SourceDiscover:
         try:
             # If FPD
             if (wordlist == "fpd"):
-                response = self.http_client.send_request(url, method="GET", allow_redirects=False, test_fpd=True)
+                response = self.http_client.send_request(url, method="GET", allow_redirects=False, test_fpd=True, verbose=self.args.verbose)
                 return getattr(response, "_is_fpd_vuln", False)
 
             else:
