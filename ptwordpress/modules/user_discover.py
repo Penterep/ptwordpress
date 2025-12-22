@@ -144,7 +144,7 @@ class UserDiscover:
         # filter out only external links
         external_links = list(set([url for url in urls if urllib.parse.urlparse(url).netloc != base_domain]))
         self.external_links.extend(external_links)
-        return external_links
+        return list(set(external_links))
 
     def _scrape_posts(self) -> list:
         """Scrapes and returns all site posts"""

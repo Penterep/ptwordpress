@@ -1,3 +1,4 @@
+import tqdm
 from time import sleep
 from urllib.parse import urljoin
 from ptlibs.http.http_client import HttpClient
@@ -17,7 +18,7 @@ class Guessing:
             with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
                 futures = [executor.submit(self.attempt_login, username, pw) for pw in weak_passwords]
 
-                for future in as_completed(futures):
+                for future in tqdm(as_completed(futures), total=len(futures), desc=f"Testing {username}", leave=False):
                     username, password, result = future.result()
                     if result == "success":
                         successful_logins.append((username, password))
@@ -34,7 +35,11 @@ class Guessing:
             'testcookie': '1'
         }
 
-        response = self.http_client.send_request(self.login_url, method="POST", data=payload)
+        try:
+            response = self.http_client.send_request(self.login_url, method="POST", data=payload)
+        except Exception as e:
+            return  (username, password, "blocked")
+
         cookie_header = response.headers.get('Set-Cookie', '')
 
         if 'wordpress_logged_in' in cookie_header:
