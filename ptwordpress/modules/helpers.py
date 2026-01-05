@@ -298,7 +298,7 @@ class Helpers:
             if sitemap_response.status_code == 200:
                 ptprint(f"Sitemap exists: {sitemap_response.url}", "OK", condition=not self.args.json, indent=4)
             elif sitemap_response.is_redirect:
-                ptprint(f"[{sitemap_response.status_code}] {self.BASE_URL + "/sitemap.xml"} -> {sitemap_response.headers.get("location")}", "OK", condition=not self.args.json, indent=4)
+                ptprint(f"[{sitemap_response.status_code}] {self.BASE_URL + '/sitemap.xml'} -> {sitemap_response.headers.get('location')}", "OK", condition=not self.args.json, indent=4)
             else:
                 ptprint(f"[{sitemap_response.status_code}] {sitemap_response.url}", "WARNING", condition=not self.args.json, indent=4)
         except requests.exceptions.RequestException:
