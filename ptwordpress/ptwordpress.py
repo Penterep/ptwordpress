@@ -254,6 +254,9 @@ class PtWordpress:
 
             if self.args.save_media:
                 MediaDownloader(args=self.args, ptjsonlib=self.ptjsonlib).save_media(media_urls)
+
+        if "WPCOMMENTS" in self.args.tests:
+            self.source_discover.print_comments(self.user_discover.USERS_TABLE)
         
         if "EXTURLS" in self.args.tests:
             all_posts = self.user_discover._scrape_posts() if not self.user_discover.was_crawled_posts else self.user_discover.all_posts
@@ -315,6 +318,7 @@ def get_tests(for_help=False):
         ("YOAST", "Yoast plugin information"),
         ("EMAILS", "Discovered email addresses from posts"),
         ("MEDIA", "Discovered media details (title, author, uploaded, modified, URL)"),
+        ("WPCOMMENTS", "Discovered WordPress comments details"),
         ("POSTS", "Discovered posts details"),
     ]
     return [["", "", f"  {k}", v] for k, v in test_data] if for_help else [k for k, _ in test_data]

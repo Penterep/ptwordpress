@@ -232,6 +232,97 @@ class SourceDiscover:
                 # Write CSV row
                 writer.writerow([title, author, uploaded, modified, url])
 
+    def _get_comment_author(self, author_id, users_table):
+        if str(author_id) == "0":
+            return ""
+
+        if hasattr(users_table, "get_user_slug_or_name"):
+            return users_table.get_user_slug_or_name(author_id)
+
+        for user in users_table:
+            if user["id"] == str(author_id):
+                return user.get("slug") or user.get("name") or author_id
+        return author_id
+
+    def print_comments(self, users_table):
+        """Print all comments discovered via API"""
+        def fetch_page(page):
+            try:
+                scrapped_comments = []
+                url = f"{self.BASE_URL}/wp-json/wp/v2/comments?page={page}&per_page=100"
+                ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
+                response = self.http_client.send_request(url, method="GET")
+                if response.status_code == 200 and response.json():
+                    for comment in response.json():
+                        scrapped_comments.append(comment)
+                    return scrapped_comments
+            except Exception:
+                return
+
+        result = []
+        ptprinthelper.ptprint(f"Discovered WordPress comments {'(link, id, author, date, post)' if self.args.verbose else ('links')}", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+
+        response = None
+        try:
+            response = self.http_client.send_request(f"{self.BASE_URL}/wp-json/wp/v2/comments?page=1&per_page=100", method="GET", allow_redirects=False)
+            if response.status_code != 200:
+                raise ValueError
+            result.extend(response.json())
+        except Exception:
+            print_api_is_not_available(status_code=getattr(response, "status_code", None))
+            return []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.threads) as executor:
+            page_range = range(2, 100)
+            for i in range(0, len(page_range), 10):
+                futures = {executor.submit(fetch_page, page_range[j]): page_range[j] for j in range(i, min(i + 10, len(page_range)))}
+                stop_processing = False
+                for future in concurrent.futures.as_completed(futures):
+                    data = future.result()
+                    if data is None:
+                        stop_processing = True
+                        break
+                    else:
+                        result.extend(data)
+                if stop_processing:
+                    break
+
+        for comment in result:
+            ptprinthelper.ptprint(comment.get("link"), "TEXT", colortext=False, condition=not self.args.json, indent=4, clear_to_eol=True)
+            if self.args.verbose:
+                author = self._get_comment_author(comment.get("author"), users_table)
+                ptprinthelper.ptprint(f'{comment.get("id")}, {comment.get("post")}, {comment.get("author")}, {author}, {comment.get("author_name")}, {comment.get("date")}', "ADDITIONS", colortext=True, condition=not self.args.json, indent=4, clear_to_eol=True)
+
+        if not result:
+            ptprinthelper.ptprint(f"No WordPress comments discovered", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
+
+        if self.args.output:
+            self.save_comments_as_csv(result, users_table)
+
+        return result
+
+    def save_comments_as_csv(self, result: list, users_table):
+        csv_filename = f"{self.args.output}-comments.csv"
+        with open(csv_filename, "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["COMMENT_ID", "POST_ID", "AUTHOR_ID", "AUTHOR_NICKNAME", "AUTHOR_DISPLAY_NAME", "AUTHOR_URL", "DATE", "LINK", "CONTENT"])
+
+            for comment in result:
+                author = self._get_comment_author(comment.get("author"), users_table)
+                content = comment.get("content") or {}
+
+                writer.writerow([
+                    comment.get("id"),
+                    comment.get("post"),
+                    comment.get("author"),
+                    author,
+                    comment.get("author_name"),
+                    comment.get("author_url"),
+                    comment.get("date"),
+                    comment.get("link"),
+                    content.get("rendered"),
+                ])
+
     def plugin_themes_discovery(self, response, content_type) -> list:
         """General discovery for theme or plugin."""
         if content_type == "theme":
