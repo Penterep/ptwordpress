@@ -1,4 +1,5 @@
 import csv
+import html
 import sys
 import io
 import os
@@ -132,7 +133,8 @@ class SourceDiscover:
                     (("/wp-admin/maint/wp-signup.php" in url) and ("Registration has been disabled".lower() in response.text.lower())):
                         return
 
-                    ptprinthelper.ptprint(f"[{response.status_code}] {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
+                    if not getattr(response, "_is_fpd_vuln", False):
+                        ptprinthelper.ptprint(f"[{response.status_code}] {url}", "VULN", condition=not self.args.json, end="\n", flush=True, indent=4, clear_to_eol=True)
                     return url
                 else:
                     if show_responses:
@@ -144,6 +146,16 @@ class SourceDiscover:
 
     def print_media(self, enumerated_users):
         """Print all media discovered via API"""
+        def parse_media(media):
+            return {
+                "id": media.get("id"),
+                "source_url": media.get("source_url"),
+                "author_id": media.get("author"),
+                "uploaded": media.get("date_gmt"),
+                "modified": media.get("modified_gmt"),
+                "title": media.get("title", {}).get("rendered"),
+            }
+
         def get_user_slug_or_name(user_id):
             for user in enumerated_users:
                 if user["id"] == str(user_id):
@@ -158,7 +170,7 @@ class SourceDiscover:
                 response = self.http_client.send_request(url, method="GET")
                 if response.status_code == 200 and response.json():
                     for m in response.json():
-                        scrapped_media.append({"source_url": m.get("source_url"), "author_id": m.get("author"), "uploaded": m.get("date_gmt"), "modified": m.get("modified_gmt"), "title": m["title"].get("rendered")})
+                        scrapped_media.append(parse_media(m))
                     return scrapped_media
             except Exception as e:
                 return
@@ -167,11 +179,11 @@ class SourceDiscover:
         source_urls = set()
 
         # Try get & parse Page 1
-        ptprinthelper.ptprint(f"Discovered media {'(link, title, author, uploaded, modified)' if self.args.verbose else ('links')}", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        ptprinthelper.ptprint(f"Discovered media {'(link, id, author, uploaded, modified, title)' if self.args.verbose else ('links')}", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         try:
             response = self.http_client.send_request(f"{self.BASE_URL}/wp-json/wp/v2/media?page=1&per_page=100", method="GET", allow_redirects=False)
             for m in response.json():
-                result.append({"source_url": m.get("source_url"), "author_id": m.get("author"), "uploaded": m.get("date_gmt"), "modified": m.get("modified_gmt"), "title": m.get("title").get("rendered")})
+                result.append(parse_media(m))
             if response.status_code != 200:
                 raise ValueError
 
@@ -201,7 +213,7 @@ class SourceDiscover:
 
             ptprinthelper.ptprint(media.get("source_url"), "TEXT", colortext=False, condition=not self.args.json, indent=4, clear_to_eol=True)
             if self.args.verbose:
-                ptprinthelper.ptprint(f'{media.get("title")}, {get_user_slug_or_name(media.get("author_id"))}, {media.get("uploaded")}, {media.get("modified")}', "ADDITIONS", colortext=True, condition=not self.args.json, indent=4, clear_to_eol=True)
+                ptprinthelper.ptprint(f'{media.get("id")}, {get_user_slug_or_name(media.get("author_id"))}, {media.get("uploaded")}, {media.get("modified")}, {media.get("title")}', "ADDITIONS", colortext=True, condition=not self.args.json, indent=4, clear_to_eol=True)
 
 
         if self.args.output:
@@ -216,7 +228,7 @@ class SourceDiscover:
         csv_filename = f"{self.args.output}-media.csv"
         with open(csv_filename, "w", newline="", encoding="utf-8") as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(["TITLE", "AUTHOR", "UPLOADED", "MODIFIED", "URL"])
+            writer.writerow(["ID", "TITLE", "AUTHOR", "UPLOADED", "MODIFIED", "URL"])
 
             for media in result:
                 # Extract fields
@@ -230,7 +242,7 @@ class SourceDiscover:
                 url = media.get("source_url")
 
                 # Write CSV row
-                writer.writerow([title, author, uploaded, modified, url])
+                writer.writerow([media.get("id"), title, author, uploaded, modified, url])
 
     def _get_comment_author(self, author_id, users_table):
         if str(author_id) == "0":
@@ -243,6 +255,17 @@ class SourceDiscover:
             if user["id"] == str(author_id):
                 return user.get("slug") or user.get("name") or author_id
         return author_id
+
+    def _get_comment_author_display(self, comment, users_table):
+        author = self._get_comment_author(comment.get("author"), users_table)
+        return author or comment.get("author_name") or comment.get("author")
+
+    def _get_comment_content_preview(self, comment):
+        content = comment.get("content") or {}
+        rendered = content.get("rendered") or ""
+        text = re.sub(r"<[^>]+>", " ", rendered)
+        text = html.unescape(" ".join(text.split()))
+        return text[:120]
 
     def print_comments(self, users_table):
         """Print all comments discovered via API"""
@@ -260,7 +283,7 @@ class SourceDiscover:
                 return
 
         result = []
-        ptprinthelper.ptprint(f"Discovered WordPress comments {'(link, id, author, date, post)' if self.args.verbose else ('links')}", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        ptprinthelper.ptprint(f"Discovered WordPress comments {'(link, id, author, date, content)' if self.args.verbose else ('links')}", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
 
         response = None
         try:
@@ -290,8 +313,9 @@ class SourceDiscover:
         for comment in result:
             ptprinthelper.ptprint(comment.get("link"), "TEXT", colortext=False, condition=not self.args.json, indent=4, clear_to_eol=True)
             if self.args.verbose:
-                author = self._get_comment_author(comment.get("author"), users_table)
-                ptprinthelper.ptprint(f'{comment.get("id")}, {comment.get("post")}, {comment.get("author")}, {author}, {comment.get("author_name")}, {comment.get("date")}', "ADDITIONS", colortext=True, condition=not self.args.json, indent=4, clear_to_eol=True)
+                author = self._get_comment_author_display(comment, users_table)
+                content = self._get_comment_content_preview(comment)
+                ptprinthelper.ptprint(f'{comment.get("id")}, {author}, {comment.get("date")}, {content}', "ADDITIONS", colortext=True, condition=not self.args.json, indent=4, clear_to_eol=True)
 
         if not result:
             ptprinthelper.ptprint(f"No WordPress comments discovered", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
@@ -305,21 +329,21 @@ class SourceDiscover:
         csv_filename = f"{self.args.output}-comments.csv"
         with open(csv_filename, "w", newline="", encoding="utf-8") as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(["COMMENT_ID", "POST_ID", "AUTHOR_ID", "AUTHOR_NICKNAME", "AUTHOR_DISPLAY_NAME", "AUTHOR_URL", "DATE", "LINK", "CONTENT"])
+            writer.writerow(["LINK", "COMMENT_ID", "AUTHOR_ID", "AUTHOR_NICKNAME", "DATE", "POST_ID", "AUTHOR_DISPLAY_NAME", "AUTHOR_URL", "CONTENT"])
 
             for comment in result:
                 author = self._get_comment_author(comment.get("author"), users_table)
                 content = comment.get("content") or {}
 
                 writer.writerow([
+                    comment.get("link"),
                     comment.get("id"),
-                    comment.get("post"),
                     comment.get("author"),
                     author,
+                    comment.get("date"),
+                    comment.get("post"),
                     comment.get("author_name"),
                     comment.get("author_url"),
-                    comment.get("date"),
-                    comment.get("link"),
                     content.get("rendered"),
                 ])
 

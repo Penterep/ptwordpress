@@ -315,10 +315,11 @@ def get_tests(for_help=False):
         ("USERPARAM", "User enumeration via author parameter"),
         ("USERAPIU", "User enumeration via API users"),
         ("USERAPIP", "User enumeration via API posts"),
+        ("USERSITEMAP", "User enumeration via WordPress users sitemap"),
         ("YOAST", "Yoast plugin information"),
         ("EMAILS", "Discovered email addresses from posts"),
-        ("MEDIA", "Discovered media details (title, author, uploaded, modified, URL)"),
-        ("WPCOMMENTS", "Discovered WordPress comments details"),
+        ("MEDIA", "Discovered media details (URL, ID, author, uploaded, modified, title)"),
+        ("WPCOMMENTS", "Discovered WordPress comments details (URL, ID, author, date, content)"),
         ("POSTS", "Discovered posts details"),
     ]
     return [["", "", f"  {k}", v] for k, v in test_data] if for_help else [k for k, _ in test_data]

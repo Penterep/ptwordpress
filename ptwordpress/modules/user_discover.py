@@ -47,6 +47,7 @@ class UserDiscover:
             "USERPARAM": self._enumerate_users_by_author_id,      # /?author=<id>
             "USERAPIU": self.enumerate_by_users_endpoint,
             "USERAPIP": self.scrape_users_by_posts,
+            "USERSITEMAP": self._enumerate_users_by_sitemap,
             "YOAST": self.yoast_scraper.print_result,
         }
 
@@ -156,7 +157,8 @@ class UserDiscover:
         # Check stability
         if response.status_code != 200:
             print_api_is_not_available(status_code=getattr(response, "status_code", None))
-            return
+            self.all_posts = []
+            return []
 
         # Scrape mails
         self.email_scraper.parse_emails_from_response(response=response)
@@ -204,6 +206,7 @@ class UserDiscover:
         if "YOAST" in self.args.tests:
             self.yoast_scraper.parse_posts(data=posts)
 
+        self.all_posts = posts
         return posts
 
 
@@ -212,6 +215,9 @@ class UserDiscover:
         ptprinthelper.ptprint(f"User enumeration via API posts ({self.BASE_URL}/wp-json/wp/v2/posts)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
 
         self.all_posts = self._scrape_posts() if not self.was_crawled_posts else self.all_posts
+        if not self.all_posts:
+            ptprinthelper.ptprint(f"No users discovered", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
+            return
 
         # Collect all new user IDs
         ids_to_enumerate = set()
@@ -381,6 +387,79 @@ class UserDiscover:
                         self.vulnerable_endpoints.add(response.url)
             if response.status_code != 200:
                 break
+
+    def _extract_author_urls_from_users_sitemap(self, response) -> list:
+        """Extract author archive URLs from a WordPress users sitemap response."""
+        try:
+            root = ET.fromstring(response.text.strip())
+        except Exception:
+            ptprinthelper.ptprint(f"Error decoding XML users sitemap", "ERROR", condition=not self.args.json, indent=4)
+            return []
+
+        author_urls = []
+        for element in root.iter():
+            if element.tag.rsplit("}", 1)[-1] != "loc" or not element.text:
+                continue
+
+            url = element.text.strip()
+            if re.search(r"/author/[^/]+/?$", urllib.parse.urlparse(url).path, re.IGNORECASE):
+                author_urls.append(url)
+
+        return author_urls
+
+    def _enumerate_user_from_sitemap_author_url(self, author_url: str):
+        """Build a user record from an author URL discovered in a users sitemap."""
+        path = urllib.parse.urlparse(author_url).path
+        match = re.search(r"/author/([^/]+)/?$", path, re.IGNORECASE)
+        if not match:
+            return
+
+        slug = urllib.parse.unquote(match.group(1))
+        ptprinthelper.ptprint(f"{author_url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
+
+        try:
+            response = self.http_client.send_request(author_url, method="GET", allow_redirects=False)
+        except requests.exceptions.RequestException:
+            return {"id": "", "name": "", "slug": slug}
+
+        name = self._extract_name_from_title(response) if response.status_code == 200 else ""
+        user_id = self._find_author_id(response) if response.status_code == 200 else ""
+        ptprinthelper.ptprint(f"{user_id}{' '*(8-len(user_id))}{slug}{' '*(40-len(slug))}{name}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
+        return {"id": user_id, "name": name, "slug": slug}
+
+    def _enumerate_users_by_sitemap(self):
+        """Enumerate users via WordPress core users sitemap files."""
+        results = []
+        ptprinthelper.ptprint(f"User enumeration via WordPress users sitemap ({self.BASE_URL}/wp-sitemap-users-<page>.xml)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+
+        for page in range(1, 100):
+            url = f"{self.BASE_URL}/wp-sitemap-users-{page}.xml"
+            ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
+            response = self.http_client.send_request(url, method="GET", allow_redirects=True)
+
+            if response.status_code == 404:
+                break
+            if response.status_code != 200:
+                break
+
+            author_urls = self._extract_author_urls_from_users_sitemap(response)
+            if not author_urls:
+                break
+
+            with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
+                futures = [executor.submit(self._enumerate_user_from_sitemap_author_url, author_url) for author_url in author_urls]
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result is not None:
+                        self.USERS_TABLE.update_queue(result)
+                        results.append(result)
+
+            self.vulnerable_endpoints.add(url)
+
+        if results:
+            ptprinthelper.ptprint(" ", "TEXT", condition=not self.args.json, clear_to_eol=True, end="")
+        else:
+            ptprinthelper.ptprint(f"No users discovered via WordPress users sitemap", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
 
     def _enumerate_users_by_rss_feed(self):
         """User enumeration via RSS feed"""
