@@ -143,9 +143,30 @@ class UserDiscover:
         base_domain = urllib.parse.urlparse(self.BASE_URL).netloc
 
         # filter out only external links
-        external_links = list(set([url for url in urls if urllib.parse.urlparse(url).netloc != base_domain]))
+        external_links = list(set([self._normalize_external_url(url) for url in urls if urllib.parse.urlparse(url).netloc != base_domain]))
         self.external_links.extend(external_links)
         return list(set(external_links))
+
+    def _normalize_external_url(self, url):
+        """Normalize external URLs for deduplication and stable output."""
+        parsed = urllib.parse.urlsplit(url)
+        path = "" if parsed.path == "/" else parsed.path
+        return urllib.parse.urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, parsed.query, ""))
+
+    def _deduplicate_posts_by_link(self, posts):
+        """Return posts without duplicate links while preserving discovery order."""
+        result = []
+        seen_links = set()
+
+        for post in posts:
+            link = post.get("link")
+            if link in seen_links:
+                continue
+
+            seen_links.add(link)
+            result.append(post)
+
+        return result
 
     def _scrape_posts(self) -> list:
         """Scrapes and returns all site posts"""
@@ -185,10 +206,11 @@ class UserDiscover:
                 return []
 
         # Scrape rest of posts in paralell
+        batch_size = 8
         with ThreadPoolExecutor(max_workers=self.args.threads) as executor:
-            for start_page in range(2, 999, 5):
+            for start_page in range(2, 999, batch_size):
                 # Define the current batch of pages
-                batch_pages = range(start_page, start_page + 8)
+                batch_pages = range(start_page, start_page + batch_size)
 
                 # Fetch all pages in this batch in parallel
                 batch_results = list(executor.map(fetch_page, batch_pages))
@@ -206,6 +228,7 @@ class UserDiscover:
         if "YOAST" in self.args.tests:
             self.yoast_scraper.parse_posts(data=posts)
 
+        posts = self._deduplicate_posts_by_link(posts)
         self.all_posts = posts
         return posts
 

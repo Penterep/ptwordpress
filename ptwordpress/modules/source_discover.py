@@ -144,7 +144,7 @@ class SourceDiscover:
             return
 
 
-    def print_media(self, enumerated_users):
+    def print_media(self, users_table):
         """Print all media discovered via API"""
         def parse_media(media):
             return {
@@ -157,8 +157,11 @@ class SourceDiscover:
             }
 
         def get_user_slug_or_name(user_id):
-            for user in enumerated_users:
-                if user["id"] == str(user_id):
+            if hasattr(users_table, "get_user_slug_or_name"):
+                return users_table.get_user_slug_or_name(user_id)
+
+            for user in users_table:
+                if str(user.get("id")) == str(user_id):
                     return user.get("slug") or user.get("name") or user_id
             return str(user_id)
 
@@ -220,11 +223,11 @@ class SourceDiscover:
             filename = self.args.output + "-media.txt"
             write_to_file(filename, '\n'.join(source_urls))
 
-            self.save_media_as_csv(result, enumerated_users)
+            self.save_media_as_csv(result, users_table)
 
         return source_urls
 
-    def save_media_as_csv(self, result: list, enumerated_users):
+    def save_media_as_csv(self, result: list, users_table):
         csv_filename = f"{self.args.output}-media.csv"
         with open(csv_filename, "w", newline="", encoding="utf-8") as csvfile:
             writer = csv.writer(csvfile)
@@ -233,9 +236,12 @@ class SourceDiscover:
             for media in result:
                 # Extract fields
                 author = media.get("author_id")
-                for user in enumerated_users:
-                    if user["id"] == author:
-                        author = user.get("slug") or user.get("name") or author
+                if hasattr(users_table, "get_user_slug_or_name"):
+                    author = users_table.get_user_slug_or_name(author)
+                else:
+                    for user in users_table:
+                        if str(user.get("id")) == str(author):
+                            author = user.get("slug") or user.get("name") or author
                 title = media.get("title")
                 uploaded = media.get("uploaded")
                 modified = media.get("modified")
