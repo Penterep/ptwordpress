@@ -1,4 +1,4 @@
-import tqdm
+from tqdm import tqdm
 from time import sleep
 from urllib.parse import urljoin
 from ptlibs.http.http_client import HttpClient
