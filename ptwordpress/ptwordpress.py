@@ -32,6 +32,7 @@ from modules.plugins.emails import get_emails_instance
 from modules.plugins.media_downloader import MediaDownloader
 from modules.user_discover   import UserDiscover
 from modules.source_discover import SourceDiscover
+from modules.page_discover import PageDiscover
 from modules.wpscan_api import WPScanAPI
 from modules.routes_walker import APIRoutesWalker
 from modules.plugins.hashes import Hashes
@@ -84,6 +85,7 @@ class PtWordpress:
         self.helpers._check_if_blocked_by_server(self.base_response.url)
 
         self.source_discover: object     = SourceDiscover(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed, self.target_is_case_sensitive)
+        self.page_discover: object       = PageDiscover(self.BASE_URL, args, self.ptjsonlib)
         self.user_discover: object       = UserDiscover(self.BASE_URL, args, self.ptjsonlib, self.head_method_allowed)
         self.wpscan_api: object          = WPScanAPI(args, self.ptjsonlib)
         self.email_scraper: object       = get_emails_instance(args=self.args)
@@ -214,7 +216,7 @@ class PtWordpress:
             all_posts = self.user_discover._scrape_posts() if not self.user_discover.was_crawled_posts else self.user_discover.all_posts
             extracted = []
             ptprinthelper.ptprint(f"Discovered posts ({'links' if not self.args.verbose else 'link, id, author, date, title'})", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-            for post in all_posts:
+            for post in sorted(all_posts, key=lambda x: x["link"]):
                 extracted.append({
                     "id": post["id"],
                     "date": post["date"],
@@ -237,8 +239,11 @@ class PtWordpress:
             if self.args.output:
                 self.helpers.save_posts_csv(all_posts, enumerated_users)
 
+        if "PAGES" in self.args.tests:
+            self.page_discover.print_pages(self.user_discover.USERS_TABLE)
+
         if "MEDIA" in self.args.tests:
-            media_urls: list = self.source_discover.print_media(self.user_discover.USERS_TABLE.get_users()) # Scrape all uploaded public media
+            media_urls: list = self.source_discover.print_media(self.user_discover.USERS_TABLE) # Scrape all uploaded public media
             # Parse unique directories, add media to it & run directory listing test
             self.http_client._stored_urls.update(media_urls)
             with open(load_wordlist_file("directories.txt", None)) as f:
@@ -263,7 +268,7 @@ class PtWordpress:
 
             ptprinthelper.ptprint(f"Discovered external links (from posts)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
 
-            for e in sorted(list(self.user_discover.external_links)):
+            for e in sorted(set(self.user_discover.external_links), key=str.casefold):
                 ptprinthelper.ptprint(e, "TEXT", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
 
             if not self.user_discover.external_links:
@@ -320,6 +325,7 @@ def get_tests(for_help=False):
         ("EMAILS", "Discovered email addresses from posts"),
         ("MEDIA", "Discovered media details (URL, ID, author, uploaded, modified, title)"),
         ("WPCOMMENTS", "Discovered WordPress comments details (URL, ID, author, date, content)"),
+        ("PAGES", "Discovered pages details (URL, ID, author, date, title)"),
         ("POSTS", "Discovered posts details"),
     ]
     return [["", "", f"  {k}", v] for k, v in test_data] if for_help else [k for k, _ in test_data]
