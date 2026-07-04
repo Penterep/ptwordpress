@@ -246,43 +246,40 @@ class UserDiscover:
         ids_to_enumerate = set()
         for post in self.all_posts:
             user_id = str(post.get("author", ""))
-            self.USERS_TABLE.update_queue({"id": user_id, "slug": "", "name": ""})
-            #if self.USERS_TABLE.needs_enumeration(user_id):
-            ids_to_enumerate.add(user_id)
+            if user_id:
+                ids_to_enumerate.add(user_id)
 
         enumerated_users = []
         space = max(1, len(str(max(ids_to_enumerate, default=1))))
         for uid in ids_to_enumerate:
             #user = self.enumerate_via_author_id_endpoint(uid, space=space)
-            user = self.check_author_id(uid)
+            user = self.check_author_id(uid) or {"id": uid, "slug": "", "name": ""}
 
             if not user["slug"] and not user["name"]:
-                user = self.enumerate_via_users_id_endpoint(user_id=uid)
+                user = self.enumerate_via_users_id_endpoint(user_id=uid, max_length=space)
 
-            if not user["slug"] and not user["name"]:
-                ptprinthelper.ptprint(f"ID: {user['id']}", "VULN", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
-
-            enumerated_users.append(user)
+            if user["slug"] or user["name"]:
+                enumerated_users.append(user)
 
         if enumerated_users:
             for user in enumerated_users:
                 self.USERS_TABLE.update_queue(user)
 
         else:
-            ptprinthelper.ptprint(f"No users discovered", "OK", condition=not self.args.json, indent=4, clear_to_eol=True)
+            ptprinthelper.ptprint(f"No users discovered", "OK", condition=not self.args.json, flush=True, indent=4, clear_to_eol=True)
 
-    def enumerate_via_users_id_endpoint(self, user_id, max_length):
+    def enumerate_via_users_id_endpoint(self, user_id, max_length=0):
         """Retrieve user information by users/<id> endpoint"""
         url = f"{self.REST_URL}/wp/v2/users/{user_id}"
         response = self.http_client.send_request(url, method="GET", allow_redirects=True)
 
-        data = self.load_prepare_response_json(response)
-
         if response.status_code == 200:
-            result = {"id": user_id, "slug": data.get("slug"), "name": data.get("name", "")}
-            if data.get("slug") or data.get("name"):
+            data = self.load_prepare_response_json(response)
+            result = {"id": user_id, "slug": data.get("slug", "") or "", "name": data.get("name", "") or ""}
+            if result["slug"] or result["name"]:
                 #ptprinthelper.ptprint(f"ID: {user_id}{' '*max_length}   → {' '*max_length} →   {data.get("slug")}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
-                ptprinthelper.ptprint(f"ID: {author_id}{' '*max_length}   → {url}{' '*max_length} →   {data.get('name', '')} {' '*nickname_max_length}{data.get('slug', '')}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
+                nickname_max_length = max(1, 20 - len(result["name"]))
+                ptprinthelper.ptprint(f"ID: {user_id}{' '*max_length}   → {url}{' '*max_length} →   {result['name']} {' '*nickname_max_length}{result['slug']}", "VULN", condition=not self.args.json, indent=4, clear_to_eol=True)
             return result
         else:
             result = {"id": user_id, "slug": "", "name": ""}
@@ -416,7 +413,7 @@ class UserDiscover:
         try:
             root = ET.fromstring(response.text.strip())
         except Exception:
-            ptprinthelper.ptprint(f"Error decoding XML users sitemap", "ERROR", condition=not self.args.json, indent=4)
+            ptprinthelper.ptprint(f"Error decoding XML users sitemap", "ERROR", condition=not self.args.json, indent=4, clear_to_eol=True)
             return []
 
         author_urls = []

@@ -344,9 +344,10 @@ class Helpers:
             generator_meta_tags = [tag for tag in meta_tags if tag.get('name') == 'generator']
             for tag in generator_meta_tags:
                 # Get wordpress version
-                match = re.search(r"WordPress (\d+\.\d+\.\d+)", tag.get("content"), re.IGNORECASE)
+                content = tag.get("content", "")
+                match = re.search(r"WordPress\s+(\d+\.\d+(?:\.\d+)?)", content, re.IGNORECASE)
                 if match:
-                    meta_tag_result.append(tag.get("content"))
+                    meta_tag_result.append(content)
                     wp_version = match.group(1)
 
             if meta_tag_result:
@@ -694,4 +695,3 @@ def load_wordlist_file(wordlist_file: str, args_wordlist=None):
     if not os.path.isfile(final_path):
         ptjsonlib.PtJsonLib().end_error(f"Wordlist file not found: {final_path}", True)
     return final_path
-

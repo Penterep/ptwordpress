@@ -37,6 +37,7 @@ from modules.wpscan_api import WPScanAPI
 from modules.routes_walker import APIRoutesWalker
 from modules.plugins.hashes import Hashes
 from modules.security_tools_identifier import SecurityToolsIdentifier
+from modules.user_agent_block import UserAgentBlockTest
 from modules.helpers import Helpers, print_api_is_not_available, load_wordlist_file
 
 from modules.guessing import Guessing
@@ -64,6 +65,9 @@ class PtWordpress:
         """Main method"""
         self.base_response: object  = self.helpers._get_base_response(url=args.url)
         self.BASE_URL, self.REST_URL = self.helpers.construct_wp_api_url(self.base_response.url) # FINAL URLs.
+
+        if "UABLOCK" in self.args.tests:
+            UserAgentBlockTest(self.BASE_URL, args, self.ptjsonlib).run()
 
         self.rest_response, self.rss_response, self.robots_txt_response = self.helpers.fetch_responses_in_parallel() # Parallel response retrieval
         self.helpers.check_if_target_is_wordpress(base_response=self.base_response, wp_json_response=None)
@@ -291,6 +295,7 @@ def get_tests(for_help=False):
     """
     test_data = [
         ("TECH", "Response headers, interesting headers, case sensitivity, meta tags"),
+        ("UABLOCK", "User-Agent blocking detection for homepage, feed and wp-json"),
         ("INFO", "Site information"),
         ("API", "Namespaces provided by addons"),
         ("ICONS", "Favicons discovery"),

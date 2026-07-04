@@ -36,17 +36,25 @@ class WPScanAPI:
 
         if plugins:
             ptprint(f"Plugins known vulnerabilities:", "INFO", not self.args.json and plugins, colortext=True, newline_above=True)
+            vulnerabilities_found = False
             for plugin in plugins:
-                self.get_plugin_vulnerabilities(plugin)
-                if plugin != plugins[-1]:
+                plugin_vulnerabilities_found = self.get_plugin_vulnerabilities(plugin, show_empty=False)
+                vulnerabilities_found = vulnerabilities_found or plugin_vulnerabilities_found
+                if plugin_vulnerabilities_found and plugin != plugins[-1]:
                     ptprint(" ", "TEXT", condition=not self.args.json)
+            if not vulnerabilities_found:
+                self.show_vulerabilities(response_data={})
 
         if themes:
             ptprint(f"Themes known vulnerabilities:", "INFO", not self.args.json and themes, colortext=True, newline_above=True)
+            vulnerabilities_found = False
             for theme in themes:
-                self.get_theme_vulnerabilities(theme)
-                if theme != themes[-1]:
+                theme_vulnerabilities_found = self.get_theme_vulnerabilities(theme, show_empty=False)
+                vulnerabilities_found = vulnerabilities_found or theme_vulnerabilities_found
+                if theme_vulnerabilities_found and theme != themes[-1]:
                     ptprint(" ", "TEXT", condition=not self.args.json)
+            if not vulnerabilities_found:
+                self.show_vulerabilities(response_data={})
 
     def get_vulnerabilities_by_wp_version(self, version: str):
         """Retrieve and print vulnerabilities from API"""
@@ -70,19 +78,21 @@ class WPScanAPI:
         
         self.show_vulerabilities(response_data=response_data)
 
-    def get_plugin_vulnerabilities(self, plugin: str):
+    def get_plugin_vulnerabilities(self, plugin: str, show_empty: bool = True):
         response_data = self.send_request(url=self.API_URL + f"/plugins/{plugin}").json()
         if response_data.get(plugin) and "is_error" not in response_data.keys():
             response_data = response_data[plugin]
-            self.show_vulerabilities(response_data=response_data)
+            return self.show_vulerabilities(response_data=response_data, show_empty=show_empty)
+        return False
 
-    def get_theme_vulnerabilities(self, theme: str):
+    def get_theme_vulnerabilities(self, theme: str, show_empty: bool = True):
         response_data = self.send_request(url=self.API_URL + f"/themes/{theme}").json()
         if response_data.get(theme) and "is_error" not in response_data.keys():
             response_data = response_data[theme]
-            self.show_vulerabilities(response_data=response_data)
+            return self.show_vulerabilities(response_data=response_data, show_empty=show_empty)
+        return False
 
-    def show_vulerabilities(self, response_data: dict):
+    def show_vulerabilities(self, response_data: dict, show_empty: bool = True):
         vulnerabilities = response_data.get("vulnerabilities", [])
         if vulnerabilities:
             vulnerabilities_sorted = sorted(
@@ -105,8 +115,11 @@ class WPScanAPI:
 
                     if index+1 != len(vulnerabilities_sorted):
                         ptprint(" ", "ADDITIONS", colortext=True, condition=not self.args.json)
+            return True
         else:
-            ptprint("No known vulnerabilities found", "OK", condition=not self.args.json, indent=4+4)
+            if show_empty:
+                ptprint("No known vulnerabilities found", "OK", condition=not self.args.json, indent=4)
+            return False
 
     def get_user_status_plan(self):
         url = self.API_URL + "/status"
