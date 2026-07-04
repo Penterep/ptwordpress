@@ -1,5 +1,6 @@
 from ptlibs import ptprinthelper
 from ptlibs.http.http_client import HttpClient
+from modules.wp_paths import wp_directory_path
 
 
 class UserAgentBlockTest:
@@ -29,7 +30,7 @@ class UserAgentBlockTest:
         endpoints = [
             ("HP", self.BASE_URL),
             ("feed", f"{self.BASE_URL}/feed"),
-            ("wp-json", f"{self.BASE_URL}/wp-json"),
+            ("wp-json", f"{self.BASE_URL}{wp_directory_path(self.args, 'json')}"),
         ]
 
         results_by_endpoint = []

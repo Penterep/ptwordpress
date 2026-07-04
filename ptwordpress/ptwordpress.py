@@ -39,6 +39,7 @@ from modules.plugins.hashes import Hashes
 from modules.security_tools_identifier import SecurityToolsIdentifier
 from modules.user_agent_block import UserAgentBlockTest
 from modules.helpers import Helpers, print_api_is_not_available, load_wordlist_file
+from modules.wp_paths import replace_wp_directory_paths
 
 from modules.guessing import Guessing
 
@@ -255,6 +256,7 @@ class PtWordpress:
 
             urls = []
             for entry in entries:
+                entry = replace_wp_directory_paths(self.args, entry)
                 if not entry.startswith("/"):
                     entry = "/" + entry
                 urls.append(self.BASE_URL + entry)
@@ -365,6 +367,10 @@ def get_help():
             ["-d",   "--delay",                  "<miliseconds>",        "Set delay before each request"],
             ["-ar",  "--author-range",           "<author-range>",       "Set custom range for author enumeration (default 1-10)"],
             ["-w",   "--wordlist",               "<directory>",          "Set custom wordlist directory"],
+            ["-wpc", "--wp-content",              "<directory>",          "Set WordPress content directory (default wp-content)"],
+            ["-wpi", "--wp-includes",             "<directory>",          "Set WordPress includes directory (default wp-includes)"],
+            ["-wpj", "--wp-json",                 "<directory>",          "Set WordPress REST API directory (default wp-json)"],
+            ["-wpa", "--wp-admin",                "<directory>",          "Set WordPress admin directory (default wp-admin)"],
             ["-H",   "--headers",                "<header:value>",       "Set Header(s)"],
             ["-wpsk","--wpscan-key",             "<api-key>",            "Set WPScan API key (https://wpscan.com)"],
             ["-pw",  "--password",               "[wordlist]",           "Run password attack on enumerated users"],
@@ -402,6 +408,10 @@ def parse_args():
     parser.add_argument("-c",    "--cookie",          type=str)
     parser.add_argument("-o",    "--output",          type=str)
     parser.add_argument("-wpsk", "--wpscan-key",      type=str)
+    parser.add_argument("-wpc", "--wp-content",       type=str, default="wp-content")
+    parser.add_argument("-wpi", "--wp-includes",      type=str, default="wp-includes")
+    parser.add_argument("-wpj", "--wp-json",          type=str, default="wp-json")
+    parser.add_argument("-wpa", "--wp-admin",         type=str, default="wp-admin")
     parser.add_argument("-bw",   "--block-wait",      type=int)
     parser.add_argument("-a",    "--user-agent",      type=str, default="Penterep Tools")
     parser.add_argument("-ar",   "--author-range",    type=ptmisclib.parse_range, default=(1, 10))

@@ -5,13 +5,14 @@ from ptlibs import ptprinthelper
 from ptlibs.http.http_client import HttpClient
 
 from modules.helpers import print_api_is_not_available
+from modules.wp_paths import wp_directory_path
 
 
 class PageDiscover:
     def __init__(self, base_url, args, ptjsonlib):
         self.args = args
         self.BASE_URL = base_url
-        self.REST_URL = base_url + "/wp-json"
+        self.REST_URL = base_url + wp_directory_path(self.args, "json")
         self.ptjsonlib = ptjsonlib
         self.http_client = HttpClient(self.args, self.ptjsonlib)
 

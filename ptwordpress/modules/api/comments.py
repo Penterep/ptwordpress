@@ -1,16 +1,31 @@
+import re
+import urllib
+
+from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
+
+from ptlibs import ptprinthelper
+from ptlibs.http.http_client import HttpClient
+
+from modules.helpers import print_api_is_not_available
+from modules.plugins.emails import get_emails_instance
+from modules.user_discover import EnumeratedUserTable
+from modules.wp_paths import wp_directory_path
+
 class CommentScrapper:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed):
-    self.ptjsonlib = ptjsonlib
-    self.args = args
-    self.REST_URL = base_url + "/wp-json"
-    self.USERS_TABLE = EnumeratedUserTable()
-    self.thread_lock = Lock()
-    self.vulnerable_endpoints: set = set()
+        self.ptjsonlib = ptjsonlib
+        self.args = args
+        self.BASE_URL = base_url
+        self.REST_URL = base_url + wp_directory_path(self.args, "json")
+        self.USERS_TABLE = EnumeratedUserTable()
+        self.thread_lock = Lock()
+        self.vulnerable_endpoints: set = set()
 
-    self.all_comments = []
-    self.external_links = []
-    self.email_scraper = get_emails_instance(args=self.args)
-    self.http_client = HttpClient(self.args, self.ptjsonlib)
+        self.all_comments = []
+        self.external_links = []
+        self.email_scraper = get_emails_instance(args=self.args)
+        self.http_client = HttpClient(self.args, self.ptjsonlib)
 
 
     def scrape_external_links(self, response):

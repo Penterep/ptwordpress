@@ -19,12 +19,13 @@ from ptlibs.http.http_client import HttpClient
 
 from modules.file_writer import write_to_file
 from modules.helpers import print_api_is_not_available, load_wordlist_file, Helpers
+from modules.wp_paths import get_wp_directories, replace_wp_directory_paths, wp_directory_path
 
 class SourceDiscover:
     def __init__(self, base_url, args, ptjsonlib, head_method_allowed: bool, target_is_case_sensitive: bool):
         self.args = args
         self.BASE_URL = base_url
-        self.REST_URL = base_url + "/wp-json"
+        self.REST_URL = base_url + wp_directory_path(self.args, "json")
         self.ptjsonlib = ptjsonlib
         self.head_method_allowed = head_method_allowed
         self.extract_result = tldparser.extract(base_url)
@@ -73,7 +74,9 @@ class SourceDiscover:
             lines = sorted(set(word.lower() for word in lines))
 
         if wordlist == "plugins":
-            lines = [f"/wp-content/plugins/{line}" for line in lines]
+            lines = [wp_directory_path(self.args, "content", "plugins", line) for line in lines]
+        else:
+            lines = [replace_wp_directory_paths(self.args, line) for line in lines]
 
         tested_files = (path.strip() for path in lines if not path.rstrip().endswith('.'))
         tested_files2 = (path.strip() for path in lines if path.rstrip().endswith('.'))
@@ -129,8 +132,8 @@ class SourceDiscover:
                 response = self.http_client.send_request(url, method=method, allow_redirects=False)
                 if response.status_code == 200 and search_in_response in response.text.lower():
                     if (wordlist == "dangerous") and \
-                    (("/wp-admin/maint/repair.php" in url) and ("define('WP_ALLOW_REPAIR', true);".lower() in response.text.lower())) or \
-                    (("/wp-admin/maint/wp-signup.php" in url) and ("Registration has been disabled".lower() in response.text.lower())):
+                    ((wp_directory_path(self.args, "admin", "maint/repair.php") in url) and ("define('WP_ALLOW_REPAIR', true);".lower() in response.text.lower())) or \
+                    ((wp_directory_path(self.args, "admin", "maint/wp-signup.php") in url) and ("Registration has been disabled".lower() in response.text.lower())):
                         return
 
                     if not getattr(response, "_is_fpd_vuln", False):
@@ -168,7 +171,7 @@ class SourceDiscover:
         def fetch_page(page):
             try:
                 scrapped_media = []
-                url = f"{self.BASE_URL}/wp-json/wp/v2/media?page={page}&per_page=100"
+                url = f"{self.REST_URL}/wp/v2/media?page={page}&per_page=100"
                 ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
                 response = self.http_client.send_request(url, method="GET")
                 if response.status_code == 200 and response.json():
@@ -184,7 +187,7 @@ class SourceDiscover:
         # Try get & parse Page 1
         ptprinthelper.ptprint(f"Discovered media {'(link, id, author, uploaded, modified, title)' if self.args.verbose else ('links')}", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         try:
-            response = self.http_client.send_request(f"{self.BASE_URL}/wp-json/wp/v2/media?page=1&per_page=100", method="GET", allow_redirects=False)
+            response = self.http_client.send_request(f"{self.REST_URL}/wp/v2/media?page=1&per_page=100", method="GET", allow_redirects=False)
             for m in response.json():
                 result.append(parse_media(m))
             if response.status_code != 200:
@@ -278,7 +281,7 @@ class SourceDiscover:
         def fetch_page(page):
             try:
                 scrapped_comments = []
-                url = f"{self.BASE_URL}/wp-json/wp/v2/comments?page={page}&per_page=100"
+                url = f"{self.REST_URL}/wp/v2/comments?page={page}&per_page=100"
                 ptprinthelper.ptprint(f"{url}", "ADDITIONS", condition=not self.args.json, end="\r", flush=True, colortext=True, indent=4, clear_to_eol=True)
                 response = self.http_client.send_request(url, method="GET")
                 if response.status_code == 200 and response.json():
@@ -293,7 +296,7 @@ class SourceDiscover:
 
         response = None
         try:
-            response = self.http_client.send_request(f"{self.BASE_URL}/wp-json/wp/v2/comments?page=1&per_page=100", method="GET", allow_redirects=False)
+            response = self.http_client.send_request(f"{self.REST_URL}/wp/v2/comments?page=1&per_page=100", method="GET", allow_redirects=False)
             if response.status_code != 200:
                 raise ValueError
             result.extend(response.json())
@@ -357,10 +360,10 @@ class SourceDiscover:
         """General discovery for theme or plugin."""
         if content_type == "theme":
             ptprinthelper.ptprint("Theme discovery", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-            pattern = r"([^\"'()]*wp-content\/themes\/)(.*?)(?=[\"')])"
+            pattern = rf"([^\"'()]*{re.escape(get_wp_directories(self.args)['content'])}\/themes\/)(.*?)(?=[\"')])"
         elif content_type == "plugin":
             ptprinthelper.ptprint("Plugin discovery", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
-            pattern = r"([^\"'()]*wp-content\/plugins\/)(.*?)(?=[\"')])"
+            pattern = rf"([^\"'()]*{re.escape(get_wp_directories(self.args)['content'])}\/plugins\/)(.*?)(?=[\"')])"
 
         paths = re.findall(pattern, response.text, re.IGNORECASE)
         paths = sorted(paths, key=lambda x: x[0]) if paths else paths

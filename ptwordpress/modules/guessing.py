@@ -2,6 +2,7 @@ from tqdm import tqdm
 from time import sleep
 from ptlibs.http.http_client import HttpClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from modules.wp_paths import wp_directory_path
 
 class Guessing:
     def __init__(self, args, ptjsonlib):
@@ -73,7 +74,7 @@ class Guessing:
             'log': username,
             'pwd': password,
             'wp-submit': 'Log In',
-            'redirect_to': f'{self.args.url.rstrip("/")}/wp-admin/',
+            'redirect_to': f'{self.args.url.rstrip("/")}{wp_directory_path(self.args, "admin", trailing_slash=True)}',
             'testcookie': '1'
         }
 

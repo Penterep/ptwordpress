@@ -2,6 +2,7 @@ import requests
 from urllib.parse import urljoin
 from ptlibs.http.http_client import HttpClient
 from urllib.parse import urljoin
+from modules.wp_paths import wp_directory_path
 
 class SecurityToolsIdentifier:
     def __init__(self, args, ptjsonlib):
@@ -12,21 +13,21 @@ class SecurityToolsIdentifier:
 
             "Wordfence Security": {
                 "paths": [
-                    "/wp-content/plugins/wordfence/",
-                    "/wp-content/plugins/wordfence/js/",
+                    wp_directory_path(self.args, "content", "plugins/wordfence", trailing_slash=True),
+                    wp_directory_path(self.args, "content", "plugins/wordfence/js", trailing_slash=True),
                 ],
                 "rest": [
-                    "/wp-json/wf/v1/",
+                    wp_directory_path(self.args, "json", "wf/v1", trailing_slash=True),
                 ],
                 "headers": ["x-wf"],
             },
 
             "iThemes Security": {
                 "paths": [
-                    "/wp-content/uploads/ithemes-security/",
+                    wp_directory_path(self.args, "content", "uploads/ithemes-security", trailing_slash=True),
                 ],
                 "rest": [
-                    "/wp-json/ithemes-security/v1/",
+                    wp_directory_path(self.args, "json", "ithemes-security/v1", trailing_slash=True),
                 ],
                 "headers": ["x-itsec"],
             },
@@ -39,17 +40,17 @@ class SecurityToolsIdentifier:
 
             "WP Cerber Security": {
                 "paths": [
-                    "/wp-content/plugins/wp-cerber/",
+                    wp_directory_path(self.args, "content", "plugins/wp-cerber", trailing_slash=True),
                 ],
                 "rest": [
-                    "/wp-json/cerber/v1/",
+                    wp_directory_path(self.args, "json", "cerber/v1", trailing_slash=True),
                 ],
                 "headers": [],
             },
 
             "NinjaFirewall": {
                 "paths": [
-                    "/wp-content/plugins/ninjafirewall/",
+                    wp_directory_path(self.args, "content", "plugins/ninjafirewall", trailing_slash=True),
                 ],
                 "rest": [],
                 "headers": ["x-ninjafirewall"],
@@ -58,7 +59,7 @@ class SecurityToolsIdentifier:
             "Shield Security": {
                 "paths": [],
                 "rest": [
-                    "/wp-json/shield/v1/",
+                    wp_directory_path(self.args, "json", "shield/v1", trailing_slash=True),
                 ],
                 "headers": ["x-sec"],
             },
@@ -66,14 +67,14 @@ class SecurityToolsIdentifier:
             "MalCare Security": {
                 "paths": [],
                 "rest": [
-                    "/wp-json/malcare/v1/",
+                    wp_directory_path(self.args, "json", "malcare/v1", trailing_slash=True),
                 ],
                 "headers": ["x-mc"],
             },
 
             "All in One WP Security": {
                 "paths": [
-                    "/wp-content/plugins/all-in-one-wp-security-and-firewall/",
+                    wp_directory_path(self.args, "content", "plugins/all-in-one-wp-security-and-firewall", trailing_slash=True),
                 ],
                 "rest": [],
                 "headers": [],
@@ -81,17 +82,17 @@ class SecurityToolsIdentifier:
 
             "Defender Security": {
                 "paths": [
-                    "/wp-content/plugins/defender-security/",
+                    wp_directory_path(self.args, "content", "plugins/defender-security", trailing_slash=True),
                 ],
                 "rest": [
-                    "/wp-json/defender/v2/",
+                    wp_directory_path(self.args, "json", "defender/v2", trailing_slash=True),
                 ],
                 "headers": [],
             },
 
             "SecuPress": {
                 "paths": [
-                    "/wp-content/plugins/secupress/",
+                    wp_directory_path(self.args, "content", "plugins/secupress", trailing_slash=True),
                 ],
                 "rest": [],
                 "headers": [],

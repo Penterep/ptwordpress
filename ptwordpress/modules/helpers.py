@@ -18,6 +18,7 @@ from ptlibs import ptjsonlib
 from modules.version_by_sources import VersionBySourcesIdentifier
 from modules.release_badges import known_svg_badge_hashes
 from modules.plugins.hashes import Hashes
+from modules.wp_paths import get_wp_directories, replace_wp_directory_paths, wp_directory_path
 
 from ptlibs import ptmisclib, ptprinthelper
 from ptlibs.ptprinthelper import ptprint
@@ -70,7 +71,12 @@ class Helpers:
 
     def check_if_target_is_wordpress(self, base_response: object, wp_json_response: object) -> bool:
         """Checks if target runs wordpress, if not script will be terminated."""
-        if not any(substring in base_response.text.lower() for substring in ["wp-content/", "wp-includes/", "wp-json/"]):
+        wordpress_paths = [
+            wp_directory_path(self.args, "content", trailing_slash=True).lstrip("/").lower(),
+            wp_directory_path(self.args, "includes", trailing_slash=True).lstrip("/").lower(),
+            wp_directory_path(self.args, "json", trailing_slash=True).lstrip("/").lower(),
+        ]
+        if not any(substring in base_response.text.lower() for substring in wordpress_paths):
             ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, indent=0)
             self.ptjsonlib.end_error(f"Target doesn't seem to be running wordpress.", self.args.json)
 
@@ -152,7 +158,7 @@ class Helpers:
             self.ptjsonlib.end_error(f"Missing or wrong scheme", self.args.json)
 
         base_url = urllib.parse.urlunparse((parsed_url.scheme, parsed_url.netloc, '', '', '', ''))
-        rest_url = base_url + "/wp-json"
+        rest_url = base_url + wp_directory_path(self.args, "json")
         return base_url, rest_url
 
     def parse_site_info_from_rest(self, rest_response, base_response, is_cloudflare):
@@ -316,7 +322,7 @@ class Helpers:
         """Retrieve wordpress version from metatags, rss feed, API, ... """
         ptprint(f"Wordpress version", "TITLE", condition=(not self.args.json and 'VERSION' in self.args.tests), newline_above=True, indent=0, colortext=True)
         wp_version = None
-        svg_badge_response = self.http_client.send_request(url=f"{self.BASE_URL}/wp-admin/images/about-release-badge.svg", method="GET", allow_redirects=False)
+        svg_badge_response = self.http_client.send_request(url=f"{self.BASE_URL}{wp_directory_path(self.args, 'admin', 'images/about-release-badge.svg')}", method="GET", allow_redirects=False)
         if svg_badge_response.status_code == 200:
             ptprinthelper.ptprint(f"{svg_badge_response.url}", "VULN", condition=(not self.args.json and 'VERSION' in self.args.tests), indent=4, end="")
             _found = False

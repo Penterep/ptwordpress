@@ -19,6 +19,7 @@ from modules.file_writer import write_to_file
 from modules.plugins.yoast import YoastScraper
 from modules.plugins.emails import Emails, get_emails_instance
 from modules.helpers import print_api_is_not_available, load_wordlist_file
+from modules.wp_paths import wp_directory_path
 
 
 
@@ -28,7 +29,7 @@ class UserDiscover:
         self.args = args
         self.head_method_allowed = head_method_allowed
         self.BASE_URL = base_url
-        self.REST_URL = base_url + "/wp-json"
+        self.REST_URL = base_url + wp_directory_path(self.args, "json")
         self.USERS_TABLE = EnumeratedUserTable()
         self.thread_lock = Lock()
         self.vulnerable_endpoints: set = set()
@@ -115,7 +116,7 @@ class UserDiscover:
 
     def enumerate_by_users_endpoint(self) -> list:
         """Enumerate users via /wp/v2/users/?per_page=100&page=<number> endpoint"""
-        ptprinthelper.ptprint(f"User enumeration via API users ({self.BASE_URL}/wp-json/wp/v2/users)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        ptprinthelper.ptprint(f"User enumeration via API users ({self.REST_URL}/wp/v2/users)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
         for i in range(1, 100):
             response = self.http_client.send_request(f"{self.REST_URL}/wp/v2/users/?per_page=100&page={i}", method="GET")
             response_data = self.load_prepare_response_json(response)
@@ -234,8 +235,8 @@ class UserDiscover:
 
 
     def scrape_users_by_posts(self):
-        """Retrieve users via /wp-json/wp/v2/posts/?per_page=100&page=<number> endpoint"""
-        ptprinthelper.ptprint(f"User enumeration via API posts ({self.BASE_URL}/wp-json/wp/v2/posts)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+        """Retrieve users via WordPress REST API posts endpoint."""
+        ptprinthelper.ptprint(f"User enumeration via API posts ({self.REST_URL}/wp/v2/posts)", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
 
         self.all_posts = self._scrape_posts() if not self.was_crawled_posts else self.all_posts
         if not self.all_posts:

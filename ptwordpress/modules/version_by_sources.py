@@ -6,6 +6,7 @@ import hashlib
 from ptlibs.http.http_client import HttpClient
 import sys
 from urllib.parse import urljoin
+from modules.wp_paths import replace_wp_directory_paths
 
 class VersionBySourcesIdentifier:
     def __init__(self, args, ptjsonlib):
@@ -114,7 +115,8 @@ class VersionBySourcesIdentifier:
         """
         Stáhne URL base + path a spočítá md5. Vrací slovník s informacemi.
         """
-        url = urljoin(base.rstrip('/') + '/', path.lstrip('/'))
+        request_path = replace_wp_directory_paths(self.args, path)
+        url = urljoin(base.rstrip('/') + '/', request_path.lstrip('/'))
         try:
             r = self.http_client.send_request(url, method="GET")
         except Exception as e:
