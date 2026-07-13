@@ -29,6 +29,11 @@ source ~/.zshrc
 ptwordpress -u https://www.example.com
 ptwordpress -u https://www.example.com -w ~/mywordlist
 ptwordpress -u https://www.example.com -o ./example -sm ./media
+ptwordpress -u https://www.example.com -ts VERSION PLUGINS USERAPIU
+ptwordpress -u https://www.example.com -ts MEDIA PAGES POSTS -vv
+ptwordpress -u https://www.example.com -pw ~/passwords.txt
+ptwordpress -u https://www.example.com -wpc content -wpi includes -wpj api -wpa administration
+ptwordpress -gp ./plugins.txt
 ```
 
 ## Options
@@ -36,23 +41,31 @@ ptwordpress -u https://www.example.com -o ./example -sm ./media
 -u     --url           <url>           Connect to URL
 -rm    --readme                        Enable readme dictionary attacks
 -pd    --plugins                       Enable plugins dictionary attacks
+-ts    --tests         <tests>         Specify tests
 -o     --output        <file>          Save emails, users, logins and media urls to files
 -sm    --save-media    <folder>        Save media to folder
 -T     --timeout       <seconds>       Set Timeout
+-bw    --block-wait    <miliseconds>   Set miliseconds to wait before trying again when blocked
 -p     --proxy         <proxy>         Set Proxy
 -c     --cookie        <cookie>        Set Cookie
 -a     --user-agent    <agent>         Set User-Agent
 -d     --delay         <miliseconds>   Set delay before each request
 -ar    --author-range  <author-range>  Set custom range for author enumeration (e.g. 1000-1300)
 -w     --wordlist      <directory>     Set custom wordlist directory
+-wpc   --wp-content    <directory>     Set WordPress content directory (default wp-content)
+-wpi   --wp-includes   <directory>     Set WordPress includes directory (default wp-includes)
+-wpj   --wp-json       <directory>     Set WordPress REST API directory (default wp-json)
+-wpa   --wp-admin      <directory>     Set WordPress admin directory (default wp-admin)
 -H     --headers       <header:value>  Set Header(s)
 -wpsk  --wpscan-key    <api-key>       Set WPScan API key (https://wpscan.com)
+-pw    --password      [wordlist]      Run password attack on enumerated users
 -t     --threads       <threads>       Number of threads (default 10)
 -r     --redirects                     Follow redirects (default False)
 -dl    --download      <directory>     Download all versions of Wordpress
--gp    --get-plugins                   Retrieve list of all plugins from wordpress.com api (save in wordlist directory)
+-gp    --get-plugins   <filename>      Retrieve list of all plugins from wordpress.com api (default plugins.txt in wordlist directory)
 -C     --cache                         Cache HTTP communication
 -v     --version                       Show script version and exit
+-vv    --verbose                       Enable verbose output
 -h     --help                          Show this help message and exit
 -j     --json                          Output in JSON format
 ```
