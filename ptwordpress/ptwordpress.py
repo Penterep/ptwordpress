@@ -106,6 +106,9 @@ class PtWordpress:
         if "GOOGLE" in self.args.tests:
             self.helpers.parse_google_identifiers(response=self.base_response)
 
+        if "PWRBY" in self.args.tests:
+            self.helpers.check_powered_by_wordpress(base_response=self.base_response)
+
         if "COMMENTS" in self.args.tests:
             self.helpers.extract_and_print_html_comments(response=self.base_response)
 
@@ -190,6 +193,7 @@ class PtWordpress:
 
         if "API" in self.args.tests:
             self.helpers.parse_namespaces_from_rest(rest_response=self.rest_response)
+            self.helpers.parse_common_rest_endpoints(base_url=self.BASE_URL, rest_response=self.rest_response)
 
         self.user_discover.run()
         enumerated_users = self.user_discover.USERS_TABLE.get_users()
@@ -299,9 +303,10 @@ def get_tests(for_help=False):
         ("TECH", "Response headers, interesting headers, case sensitivity, meta tags"),
         ("UABLOCK", "User-Agent blocking detection for homepage, feed and wp-json"),
         ("INFO", "Site information"),
-        ("API", "Namespaces provided by addons"),
+        ("API", "Namespaces provided by addons and common endpoint availability"),
         ("ICONS", "Favicons discovery"),
         ("GOOGLE", "Google-related identifiers"),
+        ("PWRBY", "Detect Powered by WordPress string in homepage source"),
         ("COMMENTS", "HTML comments discovery"),
         ("VERSION", "WordPress version and supported versions"),
         ("ROBOTS", "Robots.txt analysis"),
@@ -371,6 +376,7 @@ def get_help():
             ["-wpi", "--wp-includes",             "<directory>",          "Set WordPress includes directory (default wp-includes)"],
             ["-wpj", "--wp-json",                 "<directory>",          "Set WordPress REST API directory (default wp-json)"],
             ["-wpa", "--wp-admin",                "<directory>",          "Set WordPress admin directory (default wp-admin)"],
+            ["",     "--hard-test",               "",                     "Continue even if WordPress fingerprint check fails"],
             ["-H",   "--headers",                "<header:value>",       "Set Header(s)"],
             ["-wpsk","--wpscan-key",             "<api-key>",            "Set WPScan API key (https://wpscan.com)"],
             ["-pw",  "--password",               "[wordlist]",           "Run password attack on enumerated users"],
@@ -412,6 +418,7 @@ def parse_args():
     parser.add_argument("-wpi", "--wp-includes",      type=str, default="wp-includes")
     parser.add_argument("-wpj", "--wp-json",          type=str, default="wp-json")
     parser.add_argument("-wpa", "--wp-admin",         type=str, default="wp-admin")
+    parser.add_argument("--hard-test",                 action="store_true", help="Continue even if WordPress fingerprint check fails")
     parser.add_argument("-bw",   "--block-wait",      type=int)
     parser.add_argument("-a",    "--user-agent",      type=str, default="Penterep Tools")
     parser.add_argument("-ar",   "--author-range",    type=ptmisclib.parse_range, default=(1, 10))
@@ -447,6 +454,9 @@ def parse_args():
     args.threads = 1 if args.delay != 0 else args.threads # Run in one thread if delay parameter provided.
     if args.output:
         args.output = os.path.abspath(args.output)
+        output_dir = os.path.dirname(args.output)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
 
     if args.download:
         WordpressDownloader(download_path=args.download, ptjsonlib=ptjsonlib.PtJsonLib())

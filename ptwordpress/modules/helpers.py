@@ -70,15 +70,32 @@ class Helpers:
             ptprint("No interesting headers found.", "TEXT", not self.args.json, indent=4)
 
     def check_if_target_is_wordpress(self, base_response: object, wp_json_response: object) -> bool:
-        """Checks if target runs wordpress, if not script will be terminated."""
-        wordpress_paths = [
-            wp_directory_path(self.args, "content", trailing_slash=True).lstrip("/").lower(),
-            wp_directory_path(self.args, "includes", trailing_slash=True).lstrip("/").lower(),
-            wp_directory_path(self.args, "json", trailing_slash=True).lstrip("/").lower(),
+        """Checks if target runs wordpress; can continue with --hard-test."""
+        response_text = (base_response.text or "").lower()
+        wordpress_markers = [
+            ("wp-content", wp_directory_path(self.args, "content", trailing_slash=True).lstrip("/").lower()),
+            ("wp-includes", wp_directory_path(self.args, "includes", trailing_slash=True).lstrip("/").lower()),
+            ("wp-json", wp_directory_path(self.args, "json", trailing_slash=True).lstrip("/").lower()),
         ]
-        if not any(substring in base_response.text.lower() for substring in wordpress_paths):
-            ptprinthelper.ptprint(f" ", "TEXT", condition=not self.args.json, indent=0)
-            self.ptjsonlib.end_error(f"Target doesn't seem to be running wordpress.", self.args.json)
+
+        found_markers = [label for label, marker in wordpress_markers if marker in response_text]
+        if found_markers:
+            return True
+
+        missing_markers = [label for label, _ in wordpress_markers]
+        reason = f"Not found marker(s): {', '.join(missing_markers)}"
+
+        ptprinthelper.ptprint(" ", "TEXT", condition=not self.args.json, indent=0)
+        if getattr(self.args, "hard_test", False):
+            ptprinthelper.ptprint(
+                f"Target doesn't seem to be running wordpress. {reason}. Continuing due to --hard-test.",
+                "WARNING",
+                condition=not self.args.json,
+                indent=0,
+            )
+            return False
+
+        self.ptjsonlib.end_error(f"Target doesn't seem to be running wordpress. {reason}", self.args.json)
 
 
     def parse_google_identifiers(self, response):
@@ -107,6 +124,26 @@ class Helpers:
                 ptprinthelper.ptprint("\n        ".join(values), "TEXT", condition=not self.args.json, indent=8)
         else:
             ptprinthelper.ptprint("No identifiers found", "OK", condition=not self.args.json, indent=4)
+
+    def check_powered_by_wordpress(self, base_response):
+        """Detect Powered by WordPress string in homepage source."""
+        ptprinthelper.ptprint("Powered by WordPress", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+
+        response_text = base_response.text or ""
+
+        # Normalize source by removing tags and non-alphanumeric separators.
+        # This catches variants like: Powered by <a ...><span>WordPress</span></a>
+        visible_text = BeautifulSoup(response_text, "lxml").get_text(" ", strip=True)
+        source_without_tags = re.sub(r"<[^>]*>", " ", response_text)
+
+        normalized_visible = re.sub(r"[^a-z0-9]+", " ", visible_text.lower())
+        normalized_source = re.sub(r"[^a-z0-9]+", " ", source_without_tags.lower())
+
+        matches = ["powered by wordpress", "powerered by wordpress"]
+        if any(match in normalized_visible or match in normalized_source for match in matches):
+            ptprinthelper.ptprint("Powered by WordPress string found in homepage source", "ERROR", condition=not self.args.json, indent=4)
+        else:
+            ptprinthelper.ptprint("Powered by WordPress string not found in homepage source", "OK", condition=not self.args.json, indent=4)
 
     def get_target_ip(self, base_response):
         hostname = urllib.parse.urlparse(base_response.url).hostname
@@ -204,6 +241,39 @@ class Helpers:
             for namespace in namespaces:
                 namespace_description = self.find_description_in_csv(csv_data, namespace)
                 ptprinthelper.ptprint(f"{namespace} {namespace_description}", "TEXT", condition=not self.args.json, indent=4)
+
+    def parse_common_rest_endpoints(self, base_url, rest_response=None):
+        """Check availability of common WordPress REST API endpoints."""
+        ptprinthelper.ptprint("Common API endpoints", "TITLE", condition=not self.args.json, colortext=True, newline_above=True)
+
+        endpoints = [
+            ("/wp-json", f"{base_url}{wp_directory_path(self.args, 'json')}", rest_response),
+            ("/wp-json/wp/v2/users", f"{base_url}{wp_directory_path(self.args, 'json', 'wp', 'v2', 'users')}", None),
+            ("/wp-json/wp/v2/posts", f"{base_url}{wp_directory_path(self.args, 'json', 'wp', 'v2', 'posts')}", None),
+            ("/wp-json/wp/v2/plugins", f"{base_url}{wp_directory_path(self.args, 'json', 'wp', 'v2', 'plugins')}", None),
+            ("/wp-json/wp/v2/media", f"{base_url}{wp_directory_path(self.args, 'json', 'wp', 'v2', 'media')}", None),
+        ]
+
+        for endpoint_name, endpoint_url, cached_response in endpoints:
+            response = cached_response
+            if response is None:
+                try:
+                    response = self.http_client.send_request(endpoint_url, method="GET", allow_redirects=True)
+                except Exception:
+                    response = None
+
+            status_code = getattr(response, "status_code", None)
+            is_public = False
+            if status_code == 200:
+                try:
+                    response.json()
+                    is_public = True
+                except Exception:
+                    is_public = False
+
+            status_text = f"[{status_code}]" if status_code else "[no-response]"
+            tag = "WARNING" if is_public else "OK"
+            ptprinthelper.ptprint(f"{endpoint_url} {status_text}", tag, condition=not self.args.json, indent=4)
 
     def find_description_in_csv(self, csv_data, text: str):
         # Iterate over the rows in the CSV file
